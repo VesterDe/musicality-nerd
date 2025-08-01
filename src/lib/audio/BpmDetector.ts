@@ -25,11 +25,10 @@ export class BpmDetector {
 
 			// Round to 1 decimal place
 			const roundedBpm = Math.round(bpm * 10) / 10;
-			
-			// Sanity check: reasonable BPM range for dance music
-			if (roundedBpm < 60 || roundedBpm > 200) {
-				throw new Error(`Detected BPM ${roundedBpm} is outside reasonable range (60-200)`);
-			}
+      console.log('bpm rounding', {
+        bpm,
+        roundedBpm,
+      });
 
 			this.currentBpm = roundedBpm;
 			this.onBpmChanged?.(roundedBpm);
