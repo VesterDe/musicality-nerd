@@ -9,6 +9,11 @@ export class AudioEngine {
 	private startTime = 0;
 	private pauseTime = 0;
 	private isPlaying = false;
+	
+	// Loop functionality
+	private loopEnabled = false;
+	private loopStartTime = 0;
+	private loopEndTime = 0;
 
 	// Event handlers
 	public onTimeUpdate: ((time: number) => void) | null = null;
@@ -76,13 +81,32 @@ export class AudioEngine {
 
 		// Handle playback end
 		this.sourceNode.onended = () => {
-			this.isPlaying = false;
-			this.onEnded?.();
+			if (this.loopEnabled && this.isPlaying) {
+				// Restart from loop start point
+				this.pauseTime = this.loopStartTime;
+				this.play();
+			} else {
+				this.isPlaying = false;
+				this.onEnded?.();
+			}
 		};
 
 		// Start playback from current position
-		const offset = Number.isNaN(this.pauseTime) ? 0 : this.pauseTime;
-		this.sourceNode.start(0, offset);
+		let offset = Number.isNaN(this.pauseTime) ? 0 : this.pauseTime;
+		let duration: number | undefined;
+		
+		if (this.loopEnabled) {
+			// Ensure we're within loop bounds
+			offset = Math.max(this.loopStartTime, Math.min(this.loopEndTime, offset));
+			duration = this.loopEndTime - offset;
+		}
+		
+		if (duration !== undefined && duration > 0) {
+			this.sourceNode.start(0, offset, duration);
+		} else {
+			this.sourceNode.start(0, offset);
+		}
+		
 		this.startTime = this.audioContext.currentTime - offset;
 		this.isPlaying = true;
 
@@ -206,12 +230,66 @@ export class AudioEngine {
 	}
 
 	/**
+	 * Set loop points for playback
+	 */
+	setLoopPoints(startTime: number, endTime: number): void {
+		this.loopStartTime = Math.max(0, startTime);
+		this.loopEndTime = Math.min(this.getDuration(), endTime);
+		this.loopEnabled = true;
+	}
+	
+	/**
+	 * Clear loop points and disable looping
+	 */
+	clearLoop(): void {
+		const wasPlaying = this.isPlaying;
+		const currentPosition = this.getCurrentTime();
+		
+		this.loopEnabled = false;
+		this.loopStartTime = 0;
+		this.loopEndTime = 0;
+		
+		// If playing, restart playback without loop to continue normally
+		if (wasPlaying) {
+			this.pause();
+			this.pauseTime = currentPosition;
+			this.play();
+		}
+	}
+	
+	/**
+	 * Check if looping is enabled
+	 */
+	isLooping(): boolean {
+		return this.loopEnabled;
+	}
+	
+	/**
+	 * Get current loop points
+	 */
+	getLoopPoints(): { start: number; end: number } | null {
+		if (!this.loopEnabled) return null;
+		return { start: this.loopStartTime, end: this.loopEndTime };
+	}
+
+	/**
 	 * Start the time update loop
 	 */
 	private startTimeUpdateLoop(): void {
 		const updateTime = () => {
 			if (this.isPlaying) {
-				this.onTimeUpdate?.(this.getCurrentTime());
+				const currentTime = this.getCurrentTime();
+				
+				// Check if we need to loop
+				if (this.loopEnabled && currentTime >= this.loopEndTime) {
+					// Force loop by stopping and restarting
+					this.pause();
+					this.pauseTime = this.loopStartTime;
+					this.play();
+					return;
+				}
+				
+				this.onTimeUpdate?.(currentTime);
 				requestAnimationFrame(updateTime);
 			}
 		};

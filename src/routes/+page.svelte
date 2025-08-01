@@ -1,11 +1,15 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { del } from 'idb-keyval';
 	import { AudioEngine } from '$lib/audio/AudioEngine';
 	import { BpmDetector } from '$lib/audio/BpmDetector';
 	import { PersistenceService } from '$lib/persistence/PersistenceService';
 	import TagManager from '$lib/components/TagManager.svelte';
-	import BeatGrid from '$lib/components/BeatGrid.svelte';
+	import SpectrogramDisplay from '$lib/components/SpectrogramDisplay.svelte';
 	import type { TrackSession, Tag } from '$lib/types';
+
+	// Constants
+	const CURRENT_SESSION_KEY = 'current-session';
 
 	// Core services
 	let audioEngine: AudioEngine;
@@ -27,6 +31,7 @@
 	let currentBeatIndex = -1;
 	let fileInput: HTMLInputElement;
 	let isDetectingBpm = false;
+	let loopingChunkIndex = -1;
 
 	onMount(async () => {
 		// Initialize services
@@ -377,14 +382,98 @@
 	function handleDropZoneClick() {
 		fileInput?.click();
 	}
+	
+	function handleProgressClick(event: MouseEvent) {
+		if (!audioEngine || duration <= 0) return;
+		
+		const target = event.currentTarget as HTMLElement;
+		const rect = target.getBoundingClientRect();
+		const x = event.clientX - rect.left;
+		const percentage = x / rect.width;
+		const seekTime = percentage * duration;
+		
+		audioEngine.seekTo(Math.max(0, Math.min(duration, seekTime)));
+	}
+
+	function handleChunkLoop(chunkIndex: number, startTime: number, endTime: number) {
+		if (!audioEngine) return;
+		
+		audioEngine.setLoopPoints(startTime, endTime);
+		loopingChunkIndex = chunkIndex;
+		
+		// If not playing, start playback from loop start
+		if (!isPlaying) {
+			audioEngine.seekTo(startTime);
+			togglePlayback();
+		}
+	}
+	
+	function handleClearLoop() {
+		if (!audioEngine) return;
+		
+		audioEngine.clearLoop();
+		loopingChunkIndex = -1;
+	}
+
+	async function clearCurrentSong() {
+		if (!currentSession) return;
+		
+		// Stop playback if playing
+		if (isPlaying) {
+			audioEngine.pause();
+			isPlaying = false;
+		}
+		
+		// Clear any active loops
+		audioEngine?.clearLoop();
+		loopingChunkIndex = -1;
+		
+		// Clear the current session pointer from persistence
+		// This doesn't delete the session, just removes it as the "current" one
+		await del(CURRENT_SESSION_KEY);
+		
+		// Reset all state
+		currentSession = null;
+		currentTime = 0;
+		duration = 0;
+		bpm = 120;
+		beatOffset = 0;
+		isArmedForTagging = false;
+		armedTagId = null;
+		currentBeatIndex = -1;
+		
+		// Dispose of audio resources
+		audioEngine?.dispose();
+		audioEngine = new AudioEngine();
+		
+		// Re-setup audio engine event handlers
+		audioEngine.onTimeUpdate = (time) => {
+			currentTime = time;
+			updateCurrentBeat();
+		};
+
+		audioEngine.onEnded = () => {
+			isPlaying = false;
+		};
+	}
 </script>
 
 <main class="min-h-screen bg-gray-900 text-white">
 	<!-- Header -->
 	<header class="bg-gray-800 border-b border-gray-700 p-4">
-		<div class="max-w-7xl mx-auto">
-			<h1 class="text-2xl font-bold text-blue-400">Music Nerd</h1>
-			<p class="text-gray-400 text-sm">Analyze music structure for dance practice</p>
+		<div class="max-w-7xl mx-auto flex items-center justify-between">
+			<div>
+				<h1 class="text-2xl font-bold text-blue-400">Music Nerd</h1>
+				<p class="text-gray-400 text-sm">Analyze music structure for dance practice</p>
+			</div>
+			{#if currentSession}
+				<button
+					class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm transition-colors"
+					on:click={clearCurrentSong}
+				>
+					🔄 New Song
+				</button>
+			{/if}
 		</div>
 	</header>
 
@@ -508,9 +597,27 @@
 						<div class="text-sm text-gray-400 mb-1">
 							{formatTime(currentTime)} / {formatTime(duration)}
 						</div>
-						<div class="w-full bg-gray-700 rounded-full h-2">
+						<div 
+							class="w-full bg-gray-700 rounded-full h-2 cursor-pointer relative"
+							role="slider"
+							aria-label="Seek position"
+							aria-valuenow={currentTime}
+							aria-valuemin={0}
+							aria-valuemax={duration}
+							tabindex="0"
+							on:click={handleProgressClick}
+							on:keydown={(e) => {
+								if (e.key === 'ArrowLeft') {
+									e.preventDefault();
+									audioEngine.seekTo(Math.max(0, currentTime - 5));
+								} else if (e.key === 'ArrowRight') {
+									e.preventDefault();
+									audioEngine.seekTo(Math.min(duration, currentTime + 5));
+								}
+							}}
+						>
 							<div 
-								class="bg-blue-600 h-2 rounded-full transition-all duration-100"
+								class="bg-blue-600 h-2 rounded-full transition-all duration-100 pointer-events-none"
 								style="width: {duration > 0 ? (currentTime / duration) * 100 : 0}%"
 							></div>
 						</div>
@@ -522,8 +629,25 @@
 				</div>
 			</div>
 
-			<!-- Beat Grid -->
-			{#if currentSession.beats.length > 0}
+			<!-- Spectrogram Display -->
+			{#if currentSession}
+				<SpectrogramDisplay
+					beats={currentSession.beats}
+					tags={currentSession.tags}
+					{currentBeatIndex}
+					{currentTime}
+					{bpm}
+					audioBuffer={currentSession.mp3Blob}
+					{beatOffset}
+					onChunkLoop={handleChunkLoop}
+					onClearLoop={handleClearLoop}
+					{loopingChunkIndex}
+					onSeek={(time) => audioEngine.seekTo(time)}
+				/>
+			{/if}
+
+			<!-- Beat Grid (Commented out temporarily) -->
+			<!-- {#if currentSession.beats.length > 0}
 				<BeatGrid 
 					beats={currentSession.beats}
 					tags={currentSession.tags}
@@ -531,7 +655,7 @@
 					{currentTime}
 					{bpm}
 				/>
-			{/if}
+			{/if} -->
 
 			<!-- Tag Manager -->
 				<TagManager 
