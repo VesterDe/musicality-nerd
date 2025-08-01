@@ -62,6 +62,7 @@ export class PersistenceService {
 			bpm: 120, // Default BPM
 			beatOffset: 0, // Default offset in milliseconds
 			manualBpm: false, // BPM not manually set initially
+			beatsPerLine: 4, // Default beats per line
 			beats: [],
 			tags: {}
 		};
@@ -116,11 +117,11 @@ export class PersistenceService {
 			throw new Error('Session not found');
 		}
 
-		session.beatOffset = offsetMs;
+		session.beatOffset = Math.round(offsetMs);
 		
 		// Regenerate beats array with new offset
 		const beatInterval = 60 / session.bpm; // seconds per beat
-		const offsetInSeconds = offsetMs / 1000; // Convert ms to seconds
+		const offsetInSeconds = session.beatOffset / 1000; // Convert ms to seconds
 		const totalBeats = Math.floor((duration - offsetInSeconds) / beatInterval);
 		
 		// Preserve existing tags when regenerating beats
@@ -202,6 +203,19 @@ export class PersistenceService {
 		// Remove tag definition
 		delete session.tags[tagId];
 
+		await this.saveSession(session);
+	}
+
+	/**
+	 * Update beats per line for a session
+	 */
+	async updateBeatsPerLine(sessionId: string, beatsPerLine: number): Promise<void> {
+		const session = await this.loadSession(sessionId);
+		if (!session) {
+			throw new Error('Session not found');
+		}
+
+		session.beatsPerLine = beatsPerLine;
 		await this.saveSession(session);
 	}
 

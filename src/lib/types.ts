@@ -21,6 +21,7 @@ export interface TrackSession {
 	bpm: number;
 	beatOffset: number; // Offset in milliseconds
 	manualBpm: boolean; // Whether BPM was manually set
+	beatsPerLine: number; // Number of beats per chunk/line in spectrogram
 	beats: Beat[];
 	tags: Record<string, Tag>;
 }

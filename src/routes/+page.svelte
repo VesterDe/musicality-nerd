@@ -113,7 +113,7 @@
 				} else {
 					bpm = lastSession.bpm;
 				}
-				beatOffset = lastSession.beatOffset;
+				beatOffset = Math.round(lastSession.beatOffset);
 			}
 		} catch (error) {
 			console.error('Failed to load last session:', error);
@@ -135,7 +135,7 @@
 			await audioEngine.loadTrack(currentSession.mp3Blob);
 			duration = audioEngine.getDuration();
 			bpm = currentSession.bpm;
-			beatOffset = currentSession.beatOffset;
+			beatOffset = Math.round(currentSession.beatOffset);
 			
 			// Run automatic BPM detection
 			const audioBuffer = audioEngine.getAudioBuffer();
@@ -189,6 +189,22 @@
 		} catch (error) {
 			console.error('Failed to update offset:', error);
 		}
+	}
+
+	async function handleOffsetInput(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const rawValue = parseFloat(target.value);
+		
+		// Define snap zone (within 5ms of zero)
+		const snapZone = 5;
+		
+		if (Math.abs(rawValue) <= snapZone) {
+			beatOffset = 0;
+		} else {
+			beatOffset = rawValue;
+		}
+		
+		await updateSessionOffset();
 	}
 
 	async function recalculateBpmFromSong() {
@@ -395,6 +411,40 @@
 		audioEngine.seekTo(Math.max(0, Math.min(duration, seekTime)));
 	}
 
+	function handleProgressInput(event: Event) {
+		// Real-time visual feedback during drag - just update the UI
+		const target = event.target as HTMLInputElement;
+		const rawValue = parseFloat(target.value);
+		
+		// Apply snap-to-zero for visual feedback
+		const snapZone = 0.5;
+		if (rawValue <= snapZone) {
+			currentTime = 0;
+		} else {
+			currentTime = rawValue;
+		}
+	}
+
+	function handleProgressChange(event: Event) {
+		// Final seeking when drag/click completes
+		if (!audioEngine || duration <= 0) return;
+		
+		const target = event.target as HTMLInputElement;
+		const rawValue = parseFloat(target.value);
+		
+		// Apply snap-to-zero for actual seeking
+		const snapZone = 0.5;
+		let seekTime;
+		if (rawValue <= snapZone) {
+			seekTime = 0;
+		} else {
+			seekTime = rawValue;
+		}
+		
+		const clampedTime = Math.max(0, Math.min(duration, seekTime));
+		audioEngine.seekTo(clampedTime);
+	}
+
 	function handleChunkLoop(chunkIndex: number, startTime: number, endTime: number) {
 		if (!audioEngine) return;
 		
@@ -413,6 +463,21 @@
 		
 		audioEngine.clearLoop();
 		loopingChunkIndex = -1;
+	}
+
+	async function updateBeatsPerLine(beatsPerLine: number) {
+		if (!currentSession) return;
+		
+		try {
+			await persistenceService.updateBeatsPerLine(currentSession.id, beatsPerLine);
+			// Reload session to get updated data
+			const updatedSession = await persistenceService.loadSession(currentSession.id);
+			if (updatedSession) {
+				currentSession = updatedSession;
+			}
+		} catch (error) {
+			console.error('Failed to update beats per line:', error);
+		}
 	}
 
 	async function clearCurrentSong() {
@@ -548,14 +613,14 @@
 					<label class="text-sm text-gray-300 flex items-center justify-between">
 						<span>Beat Offset:</span>
 						<span class="text-xs text-gray-400">
-							{beatOffset > 0 ? '+' : ''}{beatOffset}ms
+							{Math.round(beatOffset) > 0 ? '+' : ''}{Math.round(beatOffset)}ms
 						</span>
 					</label>
 					<div class="relative">
 						<input 
 							type="range" 
 							bind:value={beatOffset}
-							on:input={updateSessionOffset}
+							on:input={handleOffsetInput}
 							min={-(60 / bpm) * 1000}
 							max={(60 / bpm) * 1000}
 							step="10"
@@ -571,15 +636,6 @@
 				</div>
 			</div>
 
-			<!-- BPM Detection Status -->
-			{#if isDetectingBpm}
-				<div class="bg-blue-900/20 border border-blue-600 rounded-lg p-4">
-					<h3 class="text-lg font-semibold text-blue-400 mb-2">🎵 Detecting BPM...</h3>
-					<p class="text-gray-300">
-						Analyzing audio to automatically detect the tempo. This may take a few seconds.
-					</p>
-				</div>
-			{/if}
 
 
 			<!-- Transport Controls -->
@@ -597,30 +653,16 @@
 						<div class="text-sm text-gray-400 mb-1">
 							{formatTime(currentTime)} / {formatTime(duration)}
 						</div>
-						<div 
-							class="w-full bg-gray-700 rounded-full h-2 cursor-pointer relative"
-							role="slider"
-							aria-label="Seek position"
-							aria-valuenow={currentTime}
-							aria-valuemin={0}
-							aria-valuemax={duration}
-							tabindex="0"
-							on:click={handleProgressClick}
-							on:keydown={(e) => {
-								if (e.key === 'ArrowLeft') {
-									e.preventDefault();
-									audioEngine.seekTo(Math.max(0, currentTime - 5));
-								} else if (e.key === 'ArrowRight') {
-									e.preventDefault();
-									audioEngine.seekTo(Math.min(duration, currentTime + 5));
-								}
-							}}
-						>
-							<div 
-								class="bg-blue-600 h-2 rounded-full transition-all duration-100 pointer-events-none"
-								style="width: {duration > 0 ? (currentTime / duration) * 100 : 0}%"
-							></div>
-						</div>
+						<input 
+							type="range" 
+							value={currentTime}
+							on:input={handleProgressInput}
+							on:change={handleProgressChange}
+							min="0"
+							max={duration}
+							step="0.1"
+							class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+						/>
 					</div>
 					
 					<div class="text-sm text-gray-400">
@@ -639,10 +681,12 @@
 					{bpm}
 					audioBuffer={currentSession.mp3Blob}
 					{beatOffset}
+					beatsPerLine={currentSession.beatsPerLine}
 					onChunkLoop={handleChunkLoop}
 					onClearLoop={handleClearLoop}
 					{loopingChunkIndex}
 					onSeek={(time) => audioEngine.seekTo(time)}
+					onBeatsPerLineChange={updateBeatsPerLine}
 				/>
 			{/if}
 

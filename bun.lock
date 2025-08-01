@@ -7,6 +7,7 @@
         "idb-keyval": "^6.2.2",
         "meyda": "^5.6.3",
         "uuid": "^11.1.0",
+        "wavesurfer.js": "^7.10.1",
         "web-audio-beat-detector": "^8.2.30",
       },
       "devDependencies": {
@@ -391,6 +392,8 @@
     "vitefu": ["vitefu@1.1.1", "", { "peerDependencies": { "vite": "^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0-beta.0" }, "optionalPeers": ["vite"] }, "sha512-B/Fegf3i8zh0yFbpzZ21amWzHmuNlLlmJT6n7bu5e+pCHUKQIfXSYokrqOBGEMMe9UG2sostKQF9mml/vYaWJQ=="],
 
     "wav": ["wav@1.0.2", "", { "dependencies": { "buffer-alloc": "^1.1.0", "buffer-from": "^1.0.0", "debug": "^2.2.0", "readable-stream": "^1.1.14", "stream-parser": "^0.3.1" } }, "sha512-viHtz3cDd/Tcr/HbNqzQCofKdF6kWUymH9LGDdskfWFoIy/HJ+RTihgjEcHfnsy1PO4e9B+y4HwgTwMrByquhg=="],
+
+    "wavesurfer.js": ["wavesurfer.js@7.10.1", "", {}, "sha512-tF1ptFCAi8SAqKbM1e7705zouLC3z4ulXCg15kSP5dQ7VDV30Q3x/xFRcuVIYTT5+jB/PdkhiBRCfsMshZG1Ug=="],
 
     "web-audio-beat-detector": ["web-audio-beat-detector@8.2.30", "", { "dependencies": { "@babel/runtime": "^7.27.6", "tslib": "^2.8.1", "web-audio-beat-detector-broker": "^5.0.9", "web-audio-beat-detector-worker": "^6.0.9" } }, "sha512-UOWg7IpUm5uD/QdJXke9tq1x2GxSL6isd5UhklyMNKIfZFBYDKxlFDF5nA5o3BNtmLn2O8Lw6mp1cemaDo/VAg=="],
 

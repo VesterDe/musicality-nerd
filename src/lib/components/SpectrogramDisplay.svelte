@@ -11,10 +11,12 @@
 		bpm: number;
 		audioBuffer: ArrayBuffer | null;
 		beatOffset: number;
+		beatsPerLine: number;
 		onChunkLoop?: (chunkIndex: number, startTime: number, endTime: number) => void;
 		onClearLoop?: () => void;
 		loopingChunkIndex?: number;
 		onSeek?: (time: number) => void;
+		onBeatsPerLineChange?: (value: number) => void;
 	}
 
 	let { 
@@ -25,23 +27,25 @@
 		bpm = 120,
 		audioBuffer = null,
 		beatOffset = 0,
+		beatsPerLine = 4,
 		onChunkLoop,
 		onClearLoop,
 		loopingChunkIndex = -1,
-		onSeek
+		onSeek,
+		onBeatsPerLineChange
 	}: Props = $props();
 
 	let waveformContainer: HTMLDivElement | undefined = $state();
 	let chunksContainer: HTMLDivElement | undefined = $state();
 	let wavesurfer: WaveSurfer | null = null;
-	let cuttingNumber = $state(4);
+	let beatGrouping = $state(beatsPerLine);
 	let isInitialized = $state(false);
 	let peaksData: Float32Array | null = $state(null);
 	let audioSampleRate = $state(44100); // Will be updated from actual audio
 	let audioDuration = $state(0);
 
 	// Derived values
-	const chunkDuration = $derived(cuttingNumber * (60 / bpm));
+	const chunkDuration = $derived(beatGrouping * (60 / bpm));
 	const totalChunks = $derived(audioDuration > 0 ? Math.ceil(audioDuration / chunkDuration) : 0);
 
 	onMount(async () => {
@@ -131,6 +135,11 @@
 			// Update playhead bars
 			drawPlayheadBars();
 		}
+	});
+
+	// Update beatGrouping when beatsPerLine prop changes
+	$effect(() => {
+		beatGrouping = beatsPerLine;
 	});
 
 	$effect(() => {
@@ -357,10 +366,11 @@
 			<h3 class="text-lg font-semibold text-gray-200">Chunked Waveform Display</h3>
 			<div class="flex items-center space-x-4">
 				<label class="text-sm text-gray-300 flex items-center space-x-2">
-					<span>Cutting Number:</span>
+					<span>Beats per line:</span>
 					<input 
 						type="number" 
-						bind:value={cuttingNumber}
+						bind:value={beatGrouping}
+						on:input={(e) => onBeatsPerLineChange?.(Number(e.currentTarget.value))}
 						class="bg-gray-700 text-white px-2 py-1 rounded w-16 text-sm"
 						min="1" 
 						max="16"
@@ -388,7 +398,7 @@
 					<span class="mx-2">•</span>
 					<span>Total Chunks: {totalChunks}</span>
 					<span class="mx-2">•</span>
-					<span>Beats per Chunk: {cuttingNumber}</span>
+					<span>Beats per Chunk: {beatGrouping}</span>
 				</div>
 				<div class="text-xs text-gray-500">
 					Sample Rate: {audioSampleRate}Hz • Samples: {peaksData.length.toLocaleString()}
