@@ -621,17 +621,17 @@
 							type="range" 
 							bind:value={beatOffset}
 							on:input={handleOffsetInput}
-							min={-(60 / bpm) * 1000}
-							max={(60 / bpm) * 1000}
-							step="10"
+							min={-(60 / bpm) * 500}
+							max={(60 / bpm) * 500}
+							step="5"
 							class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
 						/>
 						<div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-0.5 h-4 bg-gray-500 pointer-events-none"></div>
 					</div>
 					<div class="flex justify-between text-xs text-gray-500">
-						<span>-{Math.round((60 / bpm) * 1000)}ms</span>
+						<span>-{Math.round((60 / bpm) * 500)}ms</span>
 						<span>0</span>
-						<span>+{Math.round((60 / bpm) * 1000)}ms</span>
+						<span>+{Math.round((60 / bpm) * 500)}ms</span>
 					</div>
 				</div>
 			</div>

@@ -46,7 +46,15 @@
 
 	// Derived values
 	const chunkDuration = $derived(beatGrouping * (60 / bpm));
-	const totalChunks = $derived(audioDuration > 0 ? Math.ceil(audioDuration / chunkDuration) : 0);
+	const totalChunks = $derived.by(() => {
+		if (audioDuration <= 0) return 0;
+		const baseChunks = Math.ceil(audioDuration / chunkDuration);
+		// Add extra chunk at beginning when offset is positive (to show pre-song space)
+		// Add extra chunk at end when offset is negative (to show post-song space)
+		if (beatOffset > 0) return baseChunks + 1;
+		if (beatOffset < 0) return baseChunks + 1;
+		return baseChunks;
+	});
 
 	onMount(async () => {
 		if (audioBuffer && waveformContainer && chunksContainer) {
@@ -150,7 +158,10 @@
 	});
 
 	$effect(() => {
-		// Re-render chunks when BPM, cutting number, or beat offset changes
+		// Re-render chunks when BPM, beats per line, or beat offset changes
+		bpm; // track BPM changes
+		beatGrouping; // track beatGrouping changes
+		beatOffset; // track beatOffset changes
 		if (isInitialized && peaksData) {
 			renderChunkedCanvases();
 		}
@@ -176,20 +187,219 @@
 		// Clear existing canvases
 		chunksContainer.innerHTML = '';
 
+		// Determine chunk range based on offset
+		let startChunkIndex: number;
+		let endChunkIndex: number;
+		
+		if (beatOffset > 0) {
+			// Positive offset: add chunk -1 at beginning
+			startChunkIndex = -1;
+			endChunkIndex = totalChunks - 1;
+		} else if (beatOffset < 0) {
+			// Negative offset: also add chunk -1 at beginning
+			startChunkIndex = -1;
+			endChunkIndex = totalChunks - 1;
+		} else {
+			// No offset: normal range
+			startChunkIndex = 0;
+			endChunkIndex = totalChunks;
+		}
+
 		// Render each chunk
-		for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+		for (let chunkIndex = startChunkIndex; chunkIndex < endChunkIndex; chunkIndex++) {
 			renderChunk(chunkIndex);
 		}
 	}
 
+	function renderPreSongChunk() {
+		if (!peaksData || !chunksContainer) return;
+
+		const offsetInSeconds = beatOffset / 1000;
+		const canvasWidth = chunksContainer.offsetWidth || 800;
+		const canvasHeight = 120;
+
+		// Calculate the visual offset in pixels (how much to shift the waveform)
+		const offsetInPixels = (offsetInSeconds / chunkDuration) * canvasWidth;
+		const songStartX = offsetInPixels;
+
+		// Extract audio data for the song portion - full chunkDuration worth
+		const songSamples = Math.floor(chunkDuration * audioSampleRate);
+		const songPeaks = peaksData.slice(0, songSamples);
+
+		// Create canvas
+		const canvas = document.createElement('canvas');
+		canvas.width = canvasWidth;
+		canvas.height = canvasHeight;
+		canvas.className = 'chunk-canvas border border-gray-600 mb-2 rounded';
+		canvas.style.display = 'block';
+		canvas.style.backgroundColor = '#1f2937';
+
+		const ctx = canvas.getContext('2d');
+		if (!ctx) return;
+
+		// Draw pre-song empty space
+		drawPreSongSpace(ctx, 0, songStartX, canvasHeight);
+
+		// Draw song start marker
+		drawSongStartMarker(ctx, songStartX, canvasHeight);
+
+		// Draw waveform for song portion - at full scale, shifted by offset
+		if (songPeaks.length > 0) {
+			drawWaveformSection(ctx, songPeaks, songStartX, canvasWidth, canvasHeight);
+		}
+
+		// Draw beat markers
+		drawChunkBeatMarkers(ctx, -1, canvasWidth, canvasHeight);
+
+		// Add click listener
+		canvas.addEventListener('click', (e) => {
+			const rect = canvas.getBoundingClientRect();
+			const x = e.clientX - rect.left;
+			
+			if (x < songStartX) {
+				// Click in pre-song space - seek to beginning
+				seekToTime(0);
+			} else {
+				// Click in song portion - calculate time based on position relative to start
+				const timeInSongPortion = ((x - songStartX) / canvasWidth) * chunkDuration;
+				seekToTime(timeInSongPortion);
+			}
+		});
+
+		// Create container with label
+		const chunkContainer = document.createElement('div');
+		chunkContainer.className = 'chunk-container mb-3';
+		
+		const headerContainer = document.createElement('div');
+		headerContainer.className = 'flex items-center justify-between mb-1';
+		
+		const chunkLabel = document.createElement('div');
+		chunkLabel.className = 'text-xs text-gray-400';
+		chunkLabel.textContent = `Pre-song (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${offsetInSeconds.toFixed(3)}s)`;
+		
+		headerContainer.appendChild(chunkLabel);
+		chunkContainer.appendChild(headerContainer);
+		chunkContainer.appendChild(canvas);
+		chunksContainer.appendChild(chunkContainer);
+	}
+
+	function renderPostSongChunk() {
+		if (!peaksData || !chunksContainer) return;
+
+		const offsetInSeconds = Math.abs(beatOffset) / 1000; // Convert to positive
+		const canvasWidth = chunksContainer.offsetWidth || 800;
+		const canvasHeight = 120;
+
+		// For negative offset, chunk -1 should show mostly empty space on left, small bit of song on right
+		const emptySpaceWidth = canvasWidth - (offsetInSeconds / chunkDuration) * canvasWidth;
+		const songStartX = emptySpaceWidth;
+
+		// Extract first bit of song data (the amount pushed into the negative space)
+		const songPortionDuration = offsetInSeconds;
+		const songSamples = Math.floor(songPortionDuration * audioSampleRate);
+		const songPeaks = peaksData.slice(0, songSamples);
+
+		// Create canvas
+		const canvas = document.createElement('canvas');
+		canvas.width = canvasWidth;
+		canvas.height = canvasHeight;
+		canvas.className = 'chunk-canvas border border-gray-600 mb-2 rounded';
+		canvas.style.display = 'block';
+		canvas.style.backgroundColor = '#1f2937';
+
+		const ctx = canvas.getContext('2d');
+		if (!ctx) return;
+
+		// Draw pre-song empty space (most of the chunk)
+		drawPreSongSpace(ctx, 0, songStartX, canvasHeight);
+
+		// Draw song start marker
+		drawSongStartMarker(ctx, songStartX, canvasHeight);
+
+		// Draw small waveform portion (pushed into the negative space)
+		if (songPeaks.length > 0) {
+			const songPortionWidth = canvasWidth - songStartX;
+			drawWaveformSection(ctx, songPeaks, songStartX, songPortionWidth, canvasHeight);
+		}
+
+		// Draw beat markers
+		drawChunkBeatMarkers(ctx, -1, canvasWidth, canvasHeight);
+
+		// Add click listener
+		canvas.addEventListener('click', (e) => {
+			const rect = canvas.getBoundingClientRect();
+			const x = e.clientX - rect.left;
+			
+			if (x < songStartX) {
+				// Click in pre-song space - seek to beginning
+				seekToTime(0);
+			} else {
+				// Click in song portion - calculate time within the small song portion
+				const timeInSongPortion = ((x - songStartX) / (canvasWidth - songStartX)) * songPortionDuration;
+				seekToTime(timeInSongPortion);
+			}
+		});
+
+		// Create container with label
+		const chunkContainer = document.createElement('div');
+		chunkContainer.className = 'chunk-container mb-3';
+		
+		const headerContainer = document.createElement('div');
+		headerContainer.className = 'flex items-center justify-between mb-1';
+		
+		const chunkLabel = document.createElement('div');
+		chunkLabel.className = 'text-xs text-gray-400';
+		chunkLabel.textContent = `Pre-song negative (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${songStartX / canvasWidth * chunkDuration}s in display)`;
+		
+		headerContainer.appendChild(chunkLabel);
+		chunkContainer.appendChild(headerContainer);
+		chunkContainer.appendChild(canvas);
+		chunksContainer.appendChild(chunkContainer);
+	}
+
+
 	function renderChunk(chunkIndex: number) {
 		if (!peaksData || !chunksContainer) return;
 
-		// Calculate chunk boundaries in samples
-		const chunkStartTime = chunkIndex * chunkDuration;
-		const chunkEndTime = Math.min((chunkIndex + 1) * chunkDuration, audioDuration);
-		const startSample = Math.floor(chunkStartTime * audioSampleRate);
-		const endSample = Math.floor(chunkEndTime * audioSampleRate);
+		// Special handling for chunk -1
+		if (chunkIndex === -1) {
+			if (beatOffset > 0) {
+				renderPreSongChunk();
+			} else if (beatOffset < 0) {
+				renderPostSongChunk();
+			}
+			return;
+		}
+
+		// Calculate chunk boundaries
+		let chunkStartTime: number;
+		let chunkEndTime: number;
+		
+		if (beatOffset > 0) {
+			// When chunk -1 exists, regular chunks are shifted by the offset
+			const offsetInSeconds = beatOffset / 1000;
+			// Chunk 0 should show what would normally be at (chunkDuration - offsetInSeconds)
+			// So it covers (chunkDuration - offsetInSeconds) to (2*chunkDuration - offsetInSeconds)
+			chunkStartTime = chunkDuration - offsetInSeconds + chunkIndex * chunkDuration;
+			chunkEndTime = chunkDuration - offsetInSeconds + (chunkIndex + 1) * chunkDuration;
+		} else if (beatOffset < 0) {
+			// When negative offset, regular chunks are shifted forward by the offset amount
+			const offsetInSeconds = Math.abs(beatOffset) / 1000;
+			// Chunks show content shifted forward in time
+			chunkStartTime = chunkIndex * chunkDuration + offsetInSeconds;
+			chunkEndTime = (chunkIndex + 1) * chunkDuration + offsetInSeconds;
+		} else {
+			// Normal chunk boundaries when no offset
+			chunkStartTime = chunkIndex * chunkDuration;
+			chunkEndTime = (chunkIndex + 1) * chunkDuration;
+		}
+		
+		// Ensure we don't go beyond audio bounds
+		const clampedStartTime = Math.max(0, chunkStartTime);
+		const clampedEndTime = Math.min(chunkEndTime, audioDuration);
+		
+		const startSample = Math.floor(clampedStartTime * audioSampleRate);
+		const endSample = Math.floor(clampedEndTime * audioSampleRate);
 		
 		// Extract chunk peaks
 		const chunkPeaks = peaksData.slice(startSample, endSample);
@@ -218,7 +428,9 @@
 		canvas.addEventListener('click', (e) => {
 			const rect = canvas.getBoundingClientRect();
 			const x = e.clientX - rect.left;
-			const clickTime = chunkStartTime + (x / canvasWidth) * chunkDuration;
+			
+			// Calculate click time based on actual chunk boundaries
+			const clickTime = clampedStartTime + (x / canvasWidth) * (clampedEndTime - clampedStartTime);
 			seekToTime(clickTime);
 		});
 
@@ -263,28 +475,107 @@
 		}
 	}
 
-	function drawChunkBeatMarkers(ctx: CanvasRenderingContext2D, chunkIndex: number, width: number, height: number) {
-		const chunkStartTime = chunkIndex * chunkDuration;
-		const chunkBeats = getBeatsInChunk(chunkIndex);
+	function drawPreSongSpace(ctx: CanvasRenderingContext2D, startX: number, endX: number, height: number) {
+		// Draw a darker, hatched pattern to indicate pre-song void
+		ctx.fillStyle = '#111827'; // Darker gray
+		ctx.fillRect(startX, 0, endX - startX, height);
 		
-		chunkBeats.forEach((beat) => {
-			const adjustedTime = beat.time + (beatOffset / 1000) - chunkStartTime;
-			const x = (adjustedTime / chunkDuration) * width;
+		// Add diagonal hatching pattern
+		ctx.strokeStyle = 'rgba(75, 85, 99, 0.3)';
+		ctx.lineWidth = 1;
+		const spacing = 10;
+		
+		for (let x = startX; x < endX; x += spacing) {
+			ctx.beginPath();
+			ctx.moveTo(x, 0);
+			ctx.lineTo(x + spacing, height);
+			ctx.stroke();
+		}
+	}
+
+	function drawSongStartMarker(ctx: CanvasRenderingContext2D, x: number, height: number) {
+		// Draw a prominent vertical line to mark song start
+		ctx.strokeStyle = '#10b981'; // Green color to distinguish from beat markers
+		ctx.lineWidth = 4;
+		ctx.beginPath();
+		ctx.moveTo(x, 0);
+		ctx.lineTo(x, height);
+		ctx.stroke();
+		
+		// Add a small label
+		ctx.fillStyle = '#10b981';
+		ctx.font = '10px sans-serif';
+		ctx.fillText('START', x + 5, 15);
+	}
+
+	function drawWaveformSection(ctx: CanvasRenderingContext2D, peaks: Float32Array, startX: number, width: number, height: number) {
+		if (peaks.length === 0 || width <= 0) return;
+		
+		const barWidth = width / peaks.length;
+		const halfHeight = height / 2;
+		
+		ctx.fillStyle = '#3b82f6';
+		
+		for (let i = 0; i < peaks.length; i += Math.ceil(peaks.length / width)) {
+			const x = startX + (i / peaks.length) * width;
+			const barHeight = Math.abs(peaks[i]) * halfHeight;
 			
-			// Skip if outside chunk bounds
-			if (x < 0 || x > width) return;
+			// Draw bar from center
+			ctx.fillRect(x, halfHeight - barHeight, Math.max(1, barWidth), barHeight * 2);
+		}
+	}
+
+	function drawSongEndMarker(ctx: CanvasRenderingContext2D, x: number, height: number) {
+		// Draw a prominent vertical line to mark song end
+		ctx.strokeStyle = '#ef4444'; // Red color to distinguish from start marker
+		ctx.lineWidth = 4;
+		ctx.beginPath();
+		ctx.moveTo(x, 0);
+		ctx.lineTo(x, height);
+		ctx.stroke();
+		
+		// Add a small label
+		ctx.fillStyle = '#ef4444';
+		ctx.font = '10px sans-serif';
+		ctx.fillText('END', x + 5, 15);
+	}
+
+	function drawPostSongSpace(ctx: CanvasRenderingContext2D, startX: number, endX: number, height: number) {
+		// Draw a darker, hatched pattern to indicate post-song void
+		ctx.fillStyle = '#111827'; // Darker gray
+		ctx.fillRect(startX, 0, endX - startX, height);
+		
+		// Add diagonal hatching pattern (opposite direction from pre-song)
+		ctx.strokeStyle = 'rgba(75, 85, 99, 0.3)';
+		ctx.lineWidth = 1;
+		const spacing = 10;
+		
+		for (let x = startX; x < endX; x += spacing) {
+			ctx.beginPath();
+			ctx.moveTo(x, height);
+			ctx.lineTo(x + spacing, 0);
+			ctx.stroke();
+		}
+	}
+
+	function drawChunkBeatMarkers(ctx: CanvasRenderingContext2D, chunkIndex: number, width: number, height: number) {
+		// Draw N+1 evenly spaced vertical lines for N beats per chunk
+		const numLines = beatGrouping + 1;
+		
+		for (let i = 0; i < numLines; i++) {
+			const x = (i / beatGrouping) * width;
 			
-			// Different line styles for different beat boundaries
-			if ((beat.index + 1) % 16 === 0) {
+			// Different line styles based on position
+			if (i === 0 || i === beatGrouping) {
+				// Start and end lines
 				ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
 				ctx.lineWidth = 3;
-			} else if ((beat.index + 1) % 8 === 0) {
-				ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
-				ctx.lineWidth = 2;
-			} else if ((beat.index + 1) % 4 === 0) {
+			} else if (i % 4 === 0) {
+				// Quarter note lines
 				ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
 				ctx.lineWidth = 1.5;
 			} else {
+				// Regular beat lines
 				ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
 				ctx.lineWidth = 1;
 			}
@@ -293,7 +584,7 @@
 			ctx.moveTo(x, 0);
 			ctx.lineTo(x, height);
 			ctx.stroke();
-		});
+		}
 	}
 
 	function seekToTime(time: number) {
@@ -319,19 +610,104 @@
 		const existingPlayheads = chunksContainer.querySelectorAll('.playhead-bar');
 		existingPlayheads.forEach(el => el.remove());
 
-		// Find which chunk contains the current time
-		const currentChunkIndex = Math.floor(currentTime / chunkDuration);
-		if (currentChunkIndex < 0 || currentChunkIndex >= totalChunks) return;
+		// Determine which chunk to show playhead in
+		let currentChunkIndex: number;
+		let canvasIndex: number;
+		
+		if (beatOffset > 0) {
+			if (currentTime < chunkDuration) {
+				// Current time is in the pre-song chunk (-1) 
+				// Chunk -1 covers currentTime 0 to chunkDuration
+				currentChunkIndex = -1;
+				canvasIndex = 0; // Chunk -1 is rendered as the first canvas
+			} else {
+				// Current time is in a regular chunk
+				// Calculate which regular chunk based on time after the first chunk
+				const timeAfterFirstChunk = currentTime - chunkDuration;
+				currentChunkIndex = Math.floor(timeAfterFirstChunk / chunkDuration);
+				canvasIndex = currentChunkIndex + 1; // Canvas array: [chunk-1, chunk0, chunk1, ...]
+			}
+		} else if (beatOffset < 0) {
+			// Negative offset: check if we're in the special chunk -1
+			const offsetInSeconds = Math.abs(beatOffset) / 1000;
+			
+			if (currentTime < offsetInSeconds) {
+				// Current time is in the special negative chunk (-1)
+				currentChunkIndex = -1;
+				canvasIndex = 0; // Chunk -1 is rendered as the first canvas
+			} else {
+				// Current time is in a regular chunk, but shifted due to negative offset
+				const adjustedTime = currentTime - offsetInSeconds;
+				currentChunkIndex = Math.floor(adjustedTime / chunkDuration);
+				canvasIndex = currentChunkIndex + 1; // Canvas array: [chunk-1, chunk0, chunk1, ...]
+			}
+		} else {
+			// No offset, normal calculation
+			currentChunkIndex = Math.floor(currentTime / chunkDuration);
+			canvasIndex = currentChunkIndex;
+		}
 
 		// Find the canvas for the current chunk
 		const chunkCanvases = chunksContainer.querySelectorAll('.chunk-canvas');
-		const currentCanvas = chunkCanvases[currentChunkIndex] as HTMLCanvasElement;
+		const currentCanvas = chunkCanvases[canvasIndex] as HTMLCanvasElement;
 		if (!currentCanvas) return;
 
-		// Calculate position within the chunk
-		const chunkStartTime = currentChunkIndex * chunkDuration;
-		const timeInChunk = currentTime - chunkStartTime;
-		const x = (timeInChunk / chunkDuration) * currentCanvas.offsetWidth;
+		let x: number;
+		
+		if (currentChunkIndex === -1) {
+			if (beatOffset > 0) {
+				// Special playhead positioning for positive offset pre-song chunk
+				const offsetInSeconds = beatOffset / 1000;
+				const totalChunkDuration = offsetInSeconds + chunkDuration;
+				const songStartX = (offsetInSeconds / totalChunkDuration) * currentCanvas.offsetWidth;
+				
+				if (currentTime === 0) {
+					// At song start - position at the green marker
+					x = songStartX;
+				} else if (currentTime < offsetInSeconds) {
+					// This shouldn't happen with proper playback, but handle it
+					x = (currentTime / totalChunkDuration) * currentCanvas.offsetWidth;
+				} else {
+					// After song start - position in the song portion
+					const timeInSongPortion = currentTime;
+					const songPortionWidth = currentCanvas.offsetWidth - songStartX;
+					x = songStartX + (timeInSongPortion / chunkDuration) * songPortionWidth;
+				}
+			} else if (beatOffset < 0) {
+				// Special playhead positioning for negative offset chunk
+				const offsetInSeconds = Math.abs(beatOffset) / 1000;
+				const emptySpaceWidth = currentCanvas.offsetWidth - (offsetInSeconds / chunkDuration) * currentCanvas.offsetWidth;
+				const songStartX = emptySpaceWidth;
+				
+				if (currentTime === 0) {
+					// At song start - position at the green marker
+					x = songStartX;
+				} else {
+					// Position in the small song portion on the right
+					const timeInSongPortion = currentTime;
+					const songPortionWidth = currentCanvas.offsetWidth - songStartX;
+					x = songStartX + (timeInSongPortion / offsetInSeconds) * songPortionWidth;
+				}
+			}
+		} else {
+			// Normal playhead positioning for regular chunks
+			if (beatOffset > 0) {
+				// For regular chunks when positive offset exists
+				const chunkStartTime = chunkDuration + currentChunkIndex * chunkDuration;
+				const timeInChunk = currentTime - chunkStartTime;
+				x = (timeInChunk / chunkDuration) * currentCanvas.offsetWidth;
+			} else if (beatOffset < 0) {
+				// For regular chunks when negative offset exists
+				const offsetInSeconds = Math.abs(beatOffset) / 1000;
+				const chunkStartTime = offsetInSeconds + currentChunkIndex * chunkDuration;
+				const timeInChunk = currentTime - chunkStartTime;
+				x = (timeInChunk / chunkDuration) * currentCanvas.offsetWidth;
+			} else {
+				const chunkStartTime = currentChunkIndex * chunkDuration;
+				const timeInChunk = currentTime - chunkStartTime;
+				x = (timeInChunk / chunkDuration) * currentCanvas.offsetWidth;
+			}
+		}
 
 		// Create playhead element
 		const playhead = document.createElement('div');
