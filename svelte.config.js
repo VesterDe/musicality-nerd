@@ -8,7 +8,7 @@ const config = {
 	kit: {
 		adapter: adapter(),
 		paths: {
-			base: process.env.PUBLIC_BASE_PATH || ''
+			base: '/musicality'
 		}
 	}
 };
