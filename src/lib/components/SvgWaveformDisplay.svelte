@@ -138,7 +138,7 @@
 
 			// Generate waveform data
 			let waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
-			let beatLines: Array<{ x: number; type: 'start' | 'end' | 'quarter' | 'beat' }> = [];
+			let beatLines: Array<{ x: number; type: 'quarter' | 'beat' }> = [];
 			let headerInfo = '';
 			
 			if (isSpecialChunk) {
@@ -642,10 +642,8 @@
 									y1="0"
 									x2={line.x}
 									y2={waveformConfig.height}
-									stroke={line.type === 'start' || line.type === 'end' ? 'rgba(255, 255, 255, 0.9)' : 
-										   line.type === 'quarter' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.3)'}
-									stroke-width={line.type === 'start' || line.type === 'end' ? '3' : 
-												 line.type === 'quarter' ? '1.5' : '1'}
+																stroke={line.type === 'quarter' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.3)'}
+							stroke-width={line.type === 'quarter' ? '1.5' : '1'}
 								/>
 							{/each}
 
