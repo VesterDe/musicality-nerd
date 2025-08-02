@@ -538,40 +538,8 @@
 		}
 	}
 
-	function drawSongEndMarker(ctx: CanvasRenderingContext2D, x: number, height: number) {
-		// Draw a prominent vertical line to mark song end
-		ctx.strokeStyle = '#ef4444'; // Red color to distinguish from start marker
-		ctx.lineWidth = 4;
-		ctx.beginPath();
-		ctx.moveTo(x, 0);
-		ctx.lineTo(x, height);
-		ctx.stroke();
-		
-		// Add a small label
-		ctx.fillStyle = '#ef4444';
-		ctx.font = '10px sans-serif';
-		ctx.fillText('END', x + 5, 15);
-	}
 
-	function drawPostSongSpace(ctx: CanvasRenderingContext2D, startX: number, endX: number, height: number) {
-		// Draw a darker, hatched pattern to indicate post-song void
-		ctx.fillStyle = '#111827'; // Darker gray
-		ctx.fillRect(startX, 0, endX - startX, height);
-		
-		// Add diagonal hatching pattern (opposite direction from pre-song)
-		ctx.strokeStyle = 'rgba(75, 85, 99, 0.3)';
-		ctx.lineWidth = 1;
-		const spacing = 10;
-		
-		for (let x = startX; x < endX; x += spacing) {
-			ctx.beginPath();
-			ctx.moveTo(x, height);
-			ctx.lineTo(x + spacing, 0);
-			ctx.stroke();
-		}
-	}
-
-	function drawChunkBeatMarkers(ctx: CanvasRenderingContext2D, chunkIndex: number, width: number, height: number) {
+	function drawChunkBeatMarkers(ctx: CanvasRenderingContext2D, _chunkIndex: number, width: number, height: number) {
 		// Draw N+1 evenly spaced vertical lines for N beats per chunk
 		const numLines = beatGrouping + 1;
 		
@@ -665,7 +633,7 @@
 		const currentCanvas = chunkCanvases[canvasIndex] as HTMLCanvasElement;
 		if (!currentCanvas) return;
 
-		let x: number;
+		let x: number = 0;
 		
 		if (currentChunkIndex === -1) {
 			if (beatOffset > 0) {
