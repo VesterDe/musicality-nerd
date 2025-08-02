@@ -436,7 +436,7 @@
 
 		// Create container for chunk with label and loop button
 		const chunkContainer = document.createElement('div');
-		chunkContainer.className = 'chunk-container mb-3';
+		chunkContainer.className = 'chunk-container mb-3 relative';
 		
 		const headerContainer = document.createElement('div');
 		headerContainer.className = 'flex items-center justify-between mb-1';
@@ -445,18 +445,31 @@
 		chunkLabel.className = 'text-xs text-gray-400';
 		chunkLabel.textContent = `Chunk ${chunkIndex + 1} (${chunkStartTime.toFixed(1)}s - ${chunkEndTime.toFixed(1)}s)`;
 		
-		const loopButton = document.createElement('button');
-		loopButton.className = 'px-2 py-1 text-xs rounded transition-colors ' + 
-			(loopingChunkIndex === chunkIndex 
-				? 'bg-blue-600 hover:bg-blue-700 text-white' 
-				: 'bg-gray-700 hover:bg-gray-600 text-gray-300');
-		loopButton.textContent = loopingChunkIndex === chunkIndex ? '🔁 Stop Loop' : '🔁 Loop';
-		loopButton.onclick = () => handleLoopToggle(chunkIndex, chunkStartTime, chunkEndTime);
-		
 		headerContainer.appendChild(chunkLabel);
-		headerContainer.appendChild(loopButton);
 		chunkContainer.appendChild(headerContainer);
-		chunkContainer.appendChild(canvas);
+		
+		// Create canvas wrapper for positioning the loop tab
+		const canvasWrapper = document.createElement('div');
+		canvasWrapper.className = 'relative';
+		
+		// Create loop tab button attached to top of canvas
+		const loopTab = document.createElement('button');
+		loopTab.className = 'absolute right-4 px-3 py-1 text-xs font-medium rounded-t-md transition-all transform ' + 
+			(loopingChunkIndex === chunkIndex 
+				? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg' 
+				: 'bg-gray-700 hover:bg-gray-600 text-gray-300');
+		loopTab.style.bottom = '100%';
+		loopTab.style.marginBottom = '-1px'; // Connect seamlessly to canvas border
+		loopTab.style.borderBottomLeftRadius = '0';
+		loopTab.style.borderBottomRightRadius = '0';
+		loopTab.innerHTML = loopingChunkIndex === chunkIndex 
+			? '<span class="flex items-center gap-1">🔁 Loop Active</span>' 
+			: '<span class="flex items-center gap-1">🔁 Loop</span>';
+		loopTab.onclick = () => handleLoopToggle(chunkIndex, chunkStartTime, chunkEndTime);
+		
+		canvasWrapper.appendChild(loopTab);
+		canvasWrapper.appendChild(canvas);
+		chunkContainer.appendChild(canvasWrapper);
 		chunksContainer.appendChild(chunkContainer);
 	}
 
@@ -739,14 +752,17 @@
 {#if audioBuffer}
 	<div class="bg-gray-800 rounded-lg p-4">
 		<div class="flex items-center justify-between mb-4">
-			<h3 class="text-lg font-semibold text-gray-200">Chunked Waveform Display</h3>
 			<div class="flex items-center space-x-4">
 				<label class="text-sm text-gray-300 flex items-center space-x-2">
 					<span>Beats per line:</span>
 					<input 
 						type="number" 
-						bind:value={beatGrouping}
-						on:input={(e) => onBeatsPerLineChange?.(Number(e.currentTarget.value))}
+						value={beatGrouping}
+						onchange={(e) => {
+							const val = Number(e.currentTarget.value);
+							beatGrouping = val;
+							onBeatsPerLineChange?.(val);
+						}}
 						class="bg-gray-700 text-white px-2 py-1 rounded w-16 text-sm"
 						min="1" 
 						max="16"
