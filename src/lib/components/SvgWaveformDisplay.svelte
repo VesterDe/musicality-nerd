@@ -254,8 +254,11 @@
 				if (currentTime === 0) {
 					x = songStartX;
 				} else if (currentTime <= chunkDuration) {
-					const timeProgress = currentTime / chunkDuration;
-					x = songStartX + (timeProgress * containerWidth - songStartX) * (currentTime / (chunkDuration - offsetInSeconds));
+					// Linear progression: map time within the song portion
+					const songDuration = chunkDuration - offsetInSeconds;
+					const progressRatio = currentTime / songDuration;
+					const songPortionWidth = containerWidth - songStartX;
+					x = songStartX + progressRatio * songPortionWidth;
 				}
 			} else if (beatOffset < 0) {
 				const offsetInSeconds = Math.abs(beatOffset) / 1000;
@@ -264,8 +267,10 @@
 				if (currentTime === 0) {
 					x = songStartX;
 				} else if (currentTime <= offsetInSeconds) {
+					// Linear progression: map currentTime linearly across the song portion
+					const progressRatio = currentTime / offsetInSeconds;
 					const songPortionWidth = containerWidth - songStartX;
-					x = songStartX + (currentTime / offsetInSeconds) * songPortionWidth;
+					x = songStartX + progressRatio * songPortionWidth;
 				}
 			}
 		} else {
@@ -544,6 +549,7 @@
 	<div bind:this={waveformContainer} class="relative">
 		<div class="space-y-2">
 			{#each chunkData as chunk (chunk.index)}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div class="relative mb-0 bg-gray-900 rounded-lg overflow-hidden" data-chunk-index={chunk.index}>
 					<!-- Chunk Header -->
 					<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between">
@@ -557,6 +563,7 @@
 					</div>
 
 					<!-- SVG Waveform -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<svg
 						width={waveformConfig.width}
 						height={waveformConfig.height}
