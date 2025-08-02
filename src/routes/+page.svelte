@@ -32,6 +32,7 @@
 	let fileInput: HTMLInputElement;
 	let isDetectingBpm = false;
 	let loopingChunkIndices = new Set<number>();
+	let autoFollow = false;
 
 	onMount(async () => {
 		// Initialize services
@@ -328,6 +329,61 @@
 		// Add unsaved changes warning if needed
 		// For now, we auto-save everything, so this is just a placeholder
 		return;
+	}
+
+	function autoScrollToCurrentChunk() {
+		if (!autoFollow || !currentSession) return;
+
+		const spectrogramContainer = document.querySelector('.overflow-y-auto') as HTMLElement;
+		if (!spectrogramContainer) return;
+
+		// Calculate current chunk index (same logic as getCurrentChunkIndex)
+		const beatsPerChunk = currentSession.beatsPerLine;
+		const chunkDuration = beatsPerChunk * (60 / bpm);
+		const offsetInSeconds = beatOffset / 1000;
+		
+		let currentChunkIndex: number;
+		
+		if (beatOffset > 0) {
+			if (currentTime < (chunkDuration - offsetInSeconds)) {
+				currentChunkIndex = -1;
+			} else {
+				const adjustedTime = currentTime + offsetInSeconds;
+				currentChunkIndex = Math.floor(adjustedTime / chunkDuration);
+			}
+		} else if (beatOffset < 0) {
+			if (currentTime < Math.abs(offsetInSeconds)) {
+				currentChunkIndex = -1;
+			} else {
+				const adjustedTime = currentTime + Math.abs(offsetInSeconds);
+				currentChunkIndex = Math.floor(adjustedTime / chunkDuration);
+			}
+		} else {
+			currentChunkIndex = Math.floor(currentTime / chunkDuration);
+		}
+
+		// Find the corresponding chunk container
+		const chunkContainers = spectrogramContainer.querySelectorAll('.chunk-container');
+		let targetChunkElement: Element | null = null;
+
+		if (currentChunkIndex === -1 && chunkContainers.length > 0) {
+			targetChunkElement = chunkContainers[0]; // First chunk is chunk -1 when it exists
+		} else if (currentChunkIndex >= 0) {
+			// Adjust index based on whether chunk -1 exists
+			const hasChunkMinusOne = beatOffset !== 0;
+			const elementIndex = hasChunkMinusOne ? currentChunkIndex + 1 : currentChunkIndex;
+			if (elementIndex < chunkContainers.length) {
+				targetChunkElement = chunkContainers[elementIndex];
+			}
+		}
+
+		// Scroll to the target chunk
+		if (targetChunkElement) {
+			targetChunkElement.scrollIntoView({
+				behavior: 'smooth',
+				block: 'center'
+			});
+		}
 	}
 
 	// Drag and drop handlers
@@ -715,6 +771,25 @@
 			isPlaying = false;
 		};
 	}
+
+	// Auto-follow effect: scroll to current chunk when time changes and auto-follow is enabled
+	let lastScrollTime = 0;
+	let scrollThrottle = false;
+	
+	$: if (autoFollow && currentTime && !scrollThrottle) {
+		// Throttle scrolling to avoid excessive calls during playback
+		const now = Date.now();
+		if (now - lastScrollTime > 200) { // Max once per 200ms
+			scrollThrottle = true;
+			lastScrollTime = now;
+			
+			// Use requestAnimationFrame to ensure DOM is ready
+			requestAnimationFrame(() => {
+				autoScrollToCurrentChunk();
+				scrollThrottle = false;
+			});
+		}
+	}
 </script>
 
 <main class="min-h-screen bg-gray-900 text-white">
@@ -833,7 +908,7 @@
 
 
 			<!-- Transport Controls -->
-			<div class="bg-gray-800 rounded-lg p-4">
+			<div class="bg-gray-800 rounded-lg p-4 sticky top-0 z-10 shadow-lg border-b border-gray-700 backdrop-blur-sm">
 				<div class="flex items-center space-x-4">
 					<button 
 						class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors"
@@ -861,6 +936,29 @@
 					
 					<div class="text-sm text-gray-400">
 						Beat: {currentBeatIndex >= 0 ? currentBeatIndex + 1 : '-'}
+					</div>
+					
+					<div class="flex items-center space-x-2">
+						<label class="text-sm text-gray-300 flex items-center space-x-3 cursor-pointer select-none">
+							<span class="font-medium">Auto-follow:</span>
+							<input 
+								type="checkbox" 
+								bind:checked={autoFollow}
+								class="sr-only"
+							/>
+							<div class="relative inline-block">
+								<div class="w-11 h-6 bg-gray-600 rounded-full shadow-inner transition-all duration-200 ease-in-out {autoFollow ? 'bg-blue-600 shadow-blue-500/25' : 'bg-gray-600'}"></div>
+								<div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md transform transition-all duration-200 ease-in-out {autoFollow ? 'translate-x-5 bg-blue-50' : 'translate-x-0'}"></div>
+								{#if autoFollow}
+									<div class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full flex items-center justify-center">
+										<div class="w-2 h-2 bg-blue-600 rounded-full opacity-75"></div>
+									</div>
+								{/if}
+							</div>
+							<span class="text-xs {autoFollow ? 'text-blue-400' : 'text-gray-500'} transition-colors duration-200">
+								{autoFollow ? 'ON' : 'OFF'}
+							</span>
+						</label>
 					</div>
 				</div>
 			</div>
