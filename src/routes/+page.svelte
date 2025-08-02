@@ -790,7 +790,6 @@
 		<div class="max-w-7xl mx-auto flex items-center justify-between">
 			<div>
 				<h1 class="text-2xl font-bold text-blue-400">Music Nerd</h1>
-				<p class="text-gray-400 text-sm">Analyze music structure for dance practice</p>
 			</div>
 			{#if currentSession}
 				<button
