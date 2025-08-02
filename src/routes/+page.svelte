@@ -31,6 +31,7 @@
 	let loopingChunkIndices = new Set<number>();
 	let autoFollow = false;
 	let isAnnotationModalOpen = false;
+	let offsetUpdateTimeout: number | null = null;
 	
 
 	onMount(async () => {
@@ -197,20 +198,29 @@
 		}
 	}
 
-	async function handleOffsetInput(event: Event) {
+	function handleOffsetInput(event: Event) {
 		const target = event.target as HTMLInputElement;
 		const rawValue = parseFloat(target.value);
 		
 		// Define snap zone (within 5ms of zero)
 		const snapZone = 5;
 		
+		// Update beatOffset immediately for visual feedback
 		if (Math.abs(rawValue) <= snapZone) {
 			beatOffset = 0;
 		} else {
 			beatOffset = rawValue;
 		}
 		
-		await updateSessionOffset();
+		// Debounce the actual session update
+		if (offsetUpdateTimeout) {
+			clearTimeout(offsetUpdateTimeout);
+		}
+		
+		offsetUpdateTimeout = setTimeout(async () => {
+			await updateSessionOffset();
+			offsetUpdateTimeout = null;
+		}, 300);
 	}
 
 	async function recalculateBpmFromSong() {

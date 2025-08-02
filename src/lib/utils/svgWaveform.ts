@@ -180,7 +180,7 @@ export function generateWaveformBars(
 	chunkIndex?: number,
 	beatOffset?: number,
 	chunkDuration?: number
-): Array<{ x: number; y: number; width: number; height: number }> {
+): Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> {
 	// Special handling for chunk -1 (pre-song chunk with offset)
 	if (chunkIndex === -1 && beatOffset !== undefined && chunkDuration !== undefined) {
 		return generatePreSongChunkBars(peaksData, bounds, width, height, targetBars, beatOffset, chunkDuration);
@@ -199,7 +199,8 @@ export function generateWaveformBars(
 			x: index * barWidth,
 			y: centerY - barHeight / 2,
 			width: Math.max(1, barWidth - 1), // Small gap between bars
-			height: Math.max(1, barHeight)
+			height: Math.max(1, barHeight),
+			isEmpty: false // Regular chunks are never empty
 		};
 	});
 }
@@ -215,68 +216,21 @@ function generatePreSongChunkBars(
 	targetBars: number,
 	beatOffset: number,
 	chunkDuration: number
-): Array<{ x: number; y: number; width: number; height: number }> {
+): Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> {
 	const barWidth = width / targetBars;
 	const centerY = height / 2;
 	const offsetInSeconds = Math.abs(beatOffset) / 1000;
 
 	if (beatOffset > 0) {
-		// Positive offset: empty space at start, song data at end
-		const songStartPosition = offsetInSeconds / chunkDuration; // Normalized position where song starts
+		// Positive offset: song appears after the offset time
+		const songStartPosition = offsetInSeconds / chunkDuration;
 		const songStartBar = Math.floor(songStartPosition * targetBars);
 		
-		const bars: Array<{ x: number; y: number; width: number; height: number }> = [];
-		
-		// Empty bars before song starts
-		for (let i = 0; i < songStartBar; i++) {
-			bars.push({
-				x: i * barWidth,
-				y: centerY,
-				width: Math.max(1, barWidth - 1),
-				height: 1 // Minimal height for empty space
-			});
-		}
-		
-		// Song bars after offset - show beginning of actual song
+		// Only generate song bars, no empty bars (empty area handled by SVG rect)
+		const bars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
 		const songBarsCount = targetBars - songStartBar;
-		if (songBarsCount > 0) {
-			const songPeaks = downsamplePeaks(peaksData, 0, Math.min(songBarsCount * 100, peaksData.length), songBarsCount);
-			
-			songPeaks.forEach((bar, index) => {
-				const amplitude = Math.max(Math.abs(bar.min), Math.abs(bar.max));
-				const barHeight = amplitude * centerY * 0.8;
-				
-				bars.push({
-					x: (songStartBar + index) * barWidth,
-					y: centerY - barHeight / 2,
-					width: Math.max(1, barWidth - 1),
-					height: Math.max(1, barHeight)
-				});
-			});
-		}
 		
-		return bars;
-	} else if (beatOffset < 0) {
-		// Negative offset: empty space at start, song data at end
-		const songPosition = (chunkDuration - offsetInSeconds) / chunkDuration; // Where song starts in the chunk
-		const songStartBar = Math.floor(songPosition * targetBars);
-		
-		const bars: Array<{ x: number; y: number; width: number; height: number }> = [];
-		
-		// Empty bars at start (left side)
-		for (let i = 0; i < songStartBar; i++) {
-			bars.push({
-				x: i * barWidth,
-				y: centerY,
-				width: Math.max(1, barWidth - 1),
-				height: 1 // Minimal height for empty space
-			});
-		}
-		
-		// Song bars at end (right side) - show beginning of actual song
-		const songBarsCount = targetBars - songStartBar;
 		if (songBarsCount > 0 && bounds.endSample > bounds.startSample) {
-			// Use the actual bounds to get the correct audio samples
 			const songPeaks = downsamplePeaks(peaksData, bounds.startSample, bounds.endSample, songBarsCount);
 			
 			songPeaks.forEach((bar, index) => {
@@ -287,7 +241,35 @@ function generatePreSongChunkBars(
 					x: (songStartBar + index) * barWidth,
 					y: centerY - barHeight / 2,
 					width: Math.max(1, barWidth - 1),
-					height: Math.max(1, barHeight)
+					height: Math.max(1, barHeight),
+					isEmpty: false
+				});
+			});
+		}
+		
+		return bars;
+	} else if (beatOffset < 0) {
+		// Negative offset: song appears after empty space
+		const songPosition = (chunkDuration - offsetInSeconds) / chunkDuration;
+		const songStartBar = Math.floor(songPosition * targetBars);
+		
+		// Only generate song bars, no empty bars (empty area handled by SVG rect)
+		const bars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
+		const songBarsCount = targetBars - songStartBar;
+		
+		if (songBarsCount > 0 && bounds.endSample > bounds.startSample) {
+			const songPeaks = downsamplePeaks(peaksData, bounds.startSample, bounds.endSample, songBarsCount);
+			
+			songPeaks.forEach((bar, index) => {
+				const amplitude = Math.max(Math.abs(bar.min), Math.abs(bar.max));
+				const barHeight = amplitude * centerY * 0.8;
+				
+				bars.push({
+					x: (songStartBar + index) * barWidth,
+					y: centerY - barHeight / 2,
+					width: Math.max(1, barWidth - 1),
+					height: Math.max(1, barHeight),
+					isEmpty: false
 				});
 			});
 		}

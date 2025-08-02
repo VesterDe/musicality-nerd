@@ -2,7 +2,7 @@
 	import WaveSurfer from 'wavesurfer.js';
 	import AnnotationPopup from './AnnotationPopup.svelte';
 	import HtmlAnnotation from './HtmlAnnotation.svelte';
-	import type { Annotation } from '../types';
+	import type { Annotation, Beat } from '../types';
 	import {
 		calculateChunkBounds,
 		generateWaveformBars,
@@ -138,14 +138,26 @@
 			}
 
 			// Generate waveform data
-			let waveformBars = [];
-			let beatLines = [];
+			let waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
+			let beatLines: Array<{ x: number; type: 'start' | 'end' | 'quarter' | 'beat' }> = [];
 			let headerInfo = '';
 			
 			if (isSpecialChunk) {
-				// Special chunk -1 handling will be done in template
+				// Special chunk -1 handling
 				const offsetInSeconds = Math.abs(beatOffset) / 1000;
 				headerInfo = `Pre-song (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${offsetInSeconds.toFixed(3)}s)`;
+				
+				// Generate waveform bars for special chunk (includes empty and song bars)
+				waveformBars = generateWaveformBars(
+					peaksData, 
+					bounds, 
+					waveformConfig.width, 
+					waveformConfig.height, 
+					300, 
+					chunkIndex, 
+					beatOffset, 
+					chunkDuration
+				);
 			} else {
 				// Generate beat grid
 				beatLines = generateBeatGrid(beatGrouping, waveformConfig.width, waveformConfig.height);
@@ -584,11 +596,65 @@
 						{#if chunk.isSpecialChunk}
 							<!-- Special chunk -1 with diagonal hatching pattern -->
 							<defs>
-								<pattern id="diagonalHatch" patternUnits="userSpaceOnUse" width="10" height="10">
-									<path d="M0,10 L10,0" stroke="rgba(75, 85, 99, 0.3)" stroke-width="1"/>
+								<pattern id="diagonalHatch-{chunk.index}" patternUnits="userSpaceOnUse" width="12" height="12">
+									<rect width="12" height="12" fill="transparent"/>
+									<path d="M0,12 L12,0" stroke="rgba(156, 163, 175, 0.4)" stroke-width="1"/>
+									<path d="M-3,3 L3,-3" stroke="rgba(156, 163, 175, 0.4)" stroke-width="1"/>
+									<path d="M9,15 L15,9" stroke="rgba(156, 163, 175, 0.4)" stroke-width="1"/>
 								</pattern>
 							</defs>
-							<!-- TODO: Handle special chunk rendering in template -->
+							
+							<!-- Empty space area with diagonal pattern -->
+							{@const offsetInSeconds = Math.abs(beatOffset) / 1000}
+							{@const emptyAreaWidth = beatOffset > 0 
+								? (offsetInSeconds / chunkDuration) * waveformConfig.width
+								: ((chunkDuration - offsetInSeconds) / chunkDuration) * waveformConfig.width}
+							{#if emptyAreaWidth > 0}
+								<rect
+									x="0"
+									y="0"
+									width={emptyAreaWidth}
+									height={waveformConfig.height}
+									fill="url(#diagonalHatch-{chunk.index})"
+									pointer-events="none"
+								/>
+							{/if}
+							
+							<!-- Render song waveform bars only -->
+							{#each chunk.waveformBars as bar}
+								{#if !bar.isEmpty}
+									<rect
+										x={bar.x}
+										y={bar.y}
+										width={bar.width}
+										height={bar.height}
+										fill="#3b82f6"
+										opacity="0.8"
+									/>
+								{/if}
+							{/each}
+							
+							<!-- Song start marker line -->
+							{@const songStartX = beatOffset > 0 
+								? (offsetInSeconds / chunkDuration) * waveformConfig.width
+								: ((chunkDuration - offsetInSeconds) / chunkDuration) * waveformConfig.width}
+							<line
+								x1={songStartX}
+								y1="0"
+								x2={songStartX}
+								y2={waveformConfig.height}
+								stroke="#fbbf24"
+								stroke-width="2"
+								opacity="0.8"
+							/>
+							<text
+								x={songStartX + 2}
+								y="15"
+								fill="#fbbf24"
+								font-size="10"
+								font-family="monospace"
+								opacity="0.8"
+							>Song Start</text>
 						{:else}
 							<!-- Beat Grid Lines -->
 							{#each chunk.beatLines as line}
