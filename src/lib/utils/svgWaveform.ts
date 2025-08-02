@@ -140,7 +140,7 @@ export function generateSmoothWaveformPath(
 		
 		const amplitude = peaksData[sampleIndex];
 		const x = (i / (targetPoints - 1)) * width;
-		const y = centerY - (amplitude * centerY * 0.8); // 80% of available height
+		const y = centerY - (amplitude * centerY * 1.5); // 150% of available height
 		
 		points.push({ x, y });
 	}
@@ -193,7 +193,7 @@ export function generateWaveformBars(
 	
 	return bars.map((bar, index) => {
 		const amplitude = Math.max(Math.abs(bar.min), Math.abs(bar.max));
-		const barHeight = amplitude * centerY * 0.8; // 80% of available height
+		const barHeight = amplitude * centerY * 1.5; // 150% of available height
 		
 		return {
 			x: index * barWidth,
@@ -235,7 +235,7 @@ function generatePreSongChunkBars(
 			
 			songPeaks.forEach((bar, index) => {
 				const amplitude = Math.max(Math.abs(bar.min), Math.abs(bar.max));
-				const barHeight = amplitude * centerY * 0.8;
+				const barHeight = amplitude * centerY * 1.5;
 				
 				bars.push({
 					x: (songStartBar + index) * barWidth,
@@ -262,7 +262,7 @@ function generatePreSongChunkBars(
 			
 			songPeaks.forEach((bar, index) => {
 				const amplitude = Math.max(Math.abs(bar.min), Math.abs(bar.max));
-				const barHeight = amplitude * centerY * 0.8;
+				const barHeight = amplitude * centerY * 1.5;
 				
 				bars.push({
 					x: (songStartBar + index) * barWidth,

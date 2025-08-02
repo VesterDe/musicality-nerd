@@ -231,7 +231,7 @@
 		if (Math.abs(rawValue) <= snapZone) {
 			beatOffset = 0;
 		} else {
-			beatOffset = rawValue;
+			beatOffset = Math.round(rawValue);
 		}
 		
 		// Debounce the actual session update

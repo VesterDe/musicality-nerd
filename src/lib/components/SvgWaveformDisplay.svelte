@@ -103,10 +103,10 @@
 		beatOffset,
 		chunkDuration
 	}));
-
-	// Pre-calculate all chunk data declaratively
-	const chunkData = $derived.by(() => {
+	// Heavy computation: raw chunk data without annotations
+	const rawChunkData = $derived.by(() => {
 		if (!isInitialized || !peaksData || totalChunks === 0) return [];
+    console.log('rawChunkData')
 		
 		const chunks = [];
 		for (let chunkIndex = beatOffset !== 0 ? -1 : 0; chunkIndex < totalChunks; chunkIndex++) {
@@ -115,28 +115,7 @@
 			const bounds = calculateChunkBounds(chunkIndex, waveformConfig);
 			const isSpecialChunk = chunkIndex === -1 && beatOffset !== 0;
 			
-			// Calculate chunk annotations
-			const chunkAnnotations = annotations.filter(annotation => 
-				annotation.startTimeMs < bounds.endTimeMs && annotation.endTimeMs > bounds.startTimeMs
-			);
-			
-			// Calculate placeholder visibility for this chunk
-			const placeholderVisible = showPlaceholder && 
-				placeholderStartTimeMs < bounds.endTimeMs && placeholderEndTimeMs > bounds.startTimeMs;
-			
-			let placeholderAnnotation = null;
-			if (placeholderVisible) {
-				placeholderAnnotation = {
-					id: 'placeholder',
-					startTimeMs: placeholderStartTimeMs,
-					endTimeMs: placeholderEndTimeMs,
-					label: placeholderStartTimeMs === placeholderEndTimeMs ? 'Point annotation' : 'New annotation',
-					color: '#ff5500',
-					isPoint: placeholderStartTimeMs === placeholderEndTimeMs
-				};
-			}
-
-			// Generate waveform data
+			// Generate waveform data (expensive operations)
 			let waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
 			let beatLines: Array<{ x: number; type: 'quarter' | 'beat' }> = [];
 			let headerInfo = '';
@@ -182,18 +161,52 @@
 				index: chunkIndex,
 				bounds,
 				isSpecialChunk,
-				annotations: chunkAnnotations,
-				placeholderAnnotation,
 				waveformBars,
 				beatLines,
 				headerInfo,
 				startTime: bounds.startTimeMs / 1000,
-				endTime: bounds.endTimeMs / 1000,
-				isLooping: loopingChunkIndices.has(chunkIndex)
+				endTime: bounds.endTimeMs / 1000
 			});
 		}
 		
 		return chunks;
+	});
+
+	// Lightweight computation: combine raw data with annotations and dynamic state
+	const chunkData = $derived.by(() => {
+		if (rawChunkData.length === 0) return [];
+    console.log('chunkData')
+
+		
+		return rawChunkData.map(rawChunk => {
+			// Calculate chunk annotations (lightweight)
+			const chunkAnnotations = annotations.filter(annotation => 
+				annotation.startTimeMs < rawChunk.bounds.endTimeMs && annotation.endTimeMs > rawChunk.bounds.startTimeMs
+			);
+			
+			// Calculate placeholder visibility for this chunk (lightweight)
+			const placeholderVisible = showPlaceholder && 
+				placeholderStartTimeMs < rawChunk.bounds.endTimeMs && placeholderEndTimeMs > rawChunk.bounds.startTimeMs;
+			
+			let placeholderAnnotation = null;
+			if (placeholderVisible) {
+				placeholderAnnotation = {
+					id: 'placeholder',
+					startTimeMs: placeholderStartTimeMs,
+					endTimeMs: placeholderEndTimeMs,
+					label: placeholderStartTimeMs === placeholderEndTimeMs ? 'Point annotation' : 'New annotation',
+					color: '#ff5500',
+					isPoint: placeholderStartTimeMs === placeholderEndTimeMs
+				};
+			}
+
+			return {
+				...rawChunk,
+				annotations: chunkAnnotations,
+				placeholderAnnotation,
+				isLooping: loopingChunkIndices.has(rawChunk.index)
+			};
+		});
 	});
 
 	// Initialize audio data when AudioEngine changes
