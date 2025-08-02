@@ -74,7 +74,7 @@ export class PersistenceService {
 	/**
 	 * Update BPM for a session and regenerate beats
 	 */
-	async updateSessionBpm(sessionId: string, bpm: number, duration: number, isManual: boolean = false): Promise<void> {
+	async updateSessionBpm(sessionId: string, bpm: number, duration: number, isManual: boolean = false): Promise<TrackSession> {
 		const session = await this.loadSession(sessionId);
 		if (!session) {
 			throw new Error('Session not found');
@@ -98,12 +98,13 @@ export class PersistenceService {
 		}
 
 		await this.saveSession(session);
+		return session;
 	}
 
 	/**
 	 * Update beat offset for a session and regenerate beats
 	 */
-	async updateSessionOffset(sessionId: string, offsetMs: number, duration: number): Promise<void> {
+	async updateSessionOffset(sessionId: string, offsetMs: number, duration: number): Promise<TrackSession> {
 		const session = await this.loadSession(sessionId);
 		if (!session) {
 			throw new Error('Session not found');
@@ -126,13 +127,14 @@ export class PersistenceService {
 		}
 
 		await this.saveSession(session);
+		return session;
 	}
 
 
 	/**
 	 * Update beats per line for a session
 	 */
-	async updateBeatsPerLine(sessionId: string, beatsPerLine: number): Promise<void> {
+	async updateBeatsPerLine(sessionId: string, beatsPerLine: number): Promise<TrackSession> {
 		const session = await this.loadSession(sessionId);
 		if (!session) {
 			throw new Error('Session not found');
@@ -140,6 +142,7 @@ export class PersistenceService {
 
 		session.beatsPerLine = beatsPerLine;
 		await this.saveSession(session);
+		return session;
 	}
 
 	/**
@@ -234,7 +237,7 @@ export class PersistenceService {
 	/**
 	 * Add an annotation to a session
 	 */
-	async addAnnotation(sessionId: string, startTimeMs: number, endTimeMs: number, label: string, color: string, isPoint?: boolean): Promise<string> {
+	async addAnnotation(sessionId: string, startTimeMs: number, endTimeMs: number, label: string, color: string, isPoint?: boolean): Promise<{ annotationId: string; session: TrackSession }> {
 		const session = await this.loadSession(sessionId);
 		if (!session) {
 			throw new Error('Session not found');
@@ -261,13 +264,13 @@ export class PersistenceService {
 		session.annotations.push(annotation);
 		await this.saveSession(session);
 		
-		return annotation.id;
+		return { annotationId: annotation.id, session };
 	}
 
 	/**
 	 * Update an existing annotation
 	 */
-	async updateAnnotation(sessionId: string, annotationId: string, updates: Partial<Omit<Annotation, 'id'>>): Promise<void> {
+	async updateAnnotation(sessionId: string, annotationId: string, updates: Partial<Omit<Annotation, 'id'>>): Promise<TrackSession> {
 		const session = await this.loadSession(sessionId);
 		if (!session) {
 			throw new Error('Session not found');
@@ -301,12 +304,13 @@ export class PersistenceService {
 		}
 
 		await this.saveSession(session);
+		return session;
 	}
 
 	/**
 	 * Remove an annotation from a session
 	 */
-	async removeAnnotation(sessionId: string, annotationId: string): Promise<void> {
+	async removeAnnotation(sessionId: string, annotationId: string): Promise<TrackSession> {
 		const session = await this.loadSession(sessionId);
 		if (!session) {
 			throw new Error('Session not found');
@@ -324,6 +328,7 @@ export class PersistenceService {
 
 		session.annotations.splice(annotationIndex, 1);
 		await this.saveSession(session);
+		return session;
 	}
 
 	/**

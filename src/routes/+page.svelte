@@ -23,6 +23,7 @@
 	let bpm = 120;
 	let beatOffset = 0; // in milliseconds
 	let isDragOver = false;
+	let isSessionInitializing = false;
 
 	// UI state
 	let currentBeatIndex = -1;
@@ -92,38 +93,55 @@
 
 	async function loadLastSession() {
 		try {
+			isSessionInitializing = true;
 			const lastSession = await persistenceService.loadCurrentSession();
 			if (lastSession) {
 				// Ensure backwards compatibility for annotations
 				if (!lastSession.annotations) {
 					lastSession.annotations = [];
 				}
-				currentSession = lastSession;
+				
+				// Load audio first
 				await audioEngine.loadTrack(lastSession.mp3Blob);
 				duration = audioEngine.getDuration();
 				
-				// Run BPM detection on existing session
-				const audioBuffer = audioEngine.getAudioBuffer();
-				if (audioBuffer) {
-					try {
-						isDetectingBpm = true;
-						const detectedBpm = await bpmDetector.detectBpm(audioBuffer);
-						bpm = detectedBpm;
-						await updateSessionBpm(false);
-					} catch (error) {
-						console.error('Auto BPM detection failed:', error);
-						// Use saved BPM
-						bpm = lastSession.bpm;
-					} finally {
-						isDetectingBpm = false;
+				// Initialize local state from session
+				let finalBpm = lastSession.bpm;
+				let finalBeatOffset = Math.round(lastSession.beatOffset);
+				
+				// Run BPM detection if not manually set
+				if (!lastSession.manualBpm) {
+					const audioBuffer = audioEngine.getAudioBuffer();
+					if (audioBuffer) {
+						try {
+							isDetectingBpm = true;
+							const detectedBpm = await bpmDetector.detectBpm(audioBuffer);
+							finalBpm = detectedBpm;
+						} catch (error) {
+							console.error('Auto BPM detection failed:', error);
+							// Keep existing BPM from session
+						} finally {
+							isDetectingBpm = false;
+						}
 					}
-				} else {
-					bpm = lastSession.bpm;
 				}
-				beatOffset = Math.round(lastSession.beatOffset);
+				
+				// Update session with final values if BPM changed
+				if (finalBpm !== lastSession.bpm) {
+					const updatedSession = await persistenceService.updateSessionBpm(lastSession.id, finalBpm, duration, false);
+					lastSession.bpm = updatedSession.bpm;
+					lastSession.beats = updatedSession.beats;
+				}
+				
+				// Set all state at once after everything is ready
+				bpm = finalBpm;
+				beatOffset = finalBeatOffset;
+				currentSession = lastSession;
 			}
 		} catch (error) {
 			console.error('Failed to load last session:', error);
+		} finally {
+			isSessionInitializing = false;
 		}
 	}
 
@@ -135,14 +153,18 @@
 		}
 
 		try {
+			isSessionInitializing = true;
+			
 			// Create new session
-			currentSession = await persistenceService.createSession(file);
+			const newSession = await persistenceService.createSession(file);
 			
 			// Load audio
-			await audioEngine.loadTrack(currentSession.mp3Blob);
+			await audioEngine.loadTrack(newSession.mp3Blob);
 			duration = audioEngine.getDuration();
-			bpm = currentSession.bpm;
-			beatOffset = Math.round(currentSession.beatOffset);
+			
+			// Initialize local state
+			let finalBpm = 120; // Default BPM
+			let finalBeatOffset = 0; // Default offset
 			
 			// Run automatic BPM detection
 			const audioBuffer = audioEngine.getAudioBuffer();
@@ -150,21 +172,29 @@
 				try {
 					isDetectingBpm = true;
 					const detectedBpm = await bpmDetector.detectBpm(audioBuffer);
-					bpm = detectedBpm;
-					await updateSessionBpm(false);
+					finalBpm = detectedBpm;
 				} catch (error) {
 					console.error('Auto BPM detection failed:', error);
 					// Use default BPM
-					bpm = 120;
-					await updateSessionBpm(false);
+					finalBpm = 120;
 				} finally {
 					isDetectingBpm = false;
 				}
 			}
 			
+			// Update session with final BPM and regenerate beats
+			const updatedSession = await persistenceService.updateSessionBpm(newSession.id, finalBpm, duration, false);
+			
+			// Set all state at once after everything is ready
+			bpm = finalBpm;
+			beatOffset = finalBeatOffset;
+			currentSession = updatedSession;
+			
 		} catch (error) {
 			console.error('Failed to load track:', error);
 			alert('Failed to load audio file. Please try another file.');
+		} finally {
+			isSessionInitializing = false;
 		}
 	}
 
@@ -172,12 +202,8 @@
 		if (!currentSession) return;
 		
 		try {
-			await persistenceService.updateSessionBpm(currentSession.id, bpm, duration, isManual);
-			// Reload session to get updated beats
-			const updatedSession = await persistenceService.loadSession(currentSession.id);
-			if (updatedSession) {
-				currentSession = updatedSession;
-			}
+			const updatedSession = await persistenceService.updateSessionBpm(currentSession.id, bpm, duration, isManual);
+			currentSession = updatedSession;
 		} catch (error) {
 			console.error('Failed to update BPM:', error);
 		}
@@ -187,12 +213,8 @@
 		if (!currentSession) return;
 		
 		try {
-			await persistenceService.updateSessionOffset(currentSession.id, beatOffset, duration);
-			// Reload session to get updated beats
-			const updatedSession = await persistenceService.loadSession(currentSession.id);
-			if (updatedSession) {
-				currentSession = updatedSession;
-			}
+			const updatedSession = await persistenceService.updateSessionOffset(currentSession.id, beatOffset, duration);
+			currentSession = updatedSession;
 		} catch (error) {
 			console.error('Failed to update offset:', error);
 		}
@@ -420,11 +442,8 @@
 		
 		const { startTimeMs, endTimeMs, label, color } = event.detail;
 		try {
-			await persistenceService.addAnnotation(currentSession.id, startTimeMs, endTimeMs, label, color);
-			const updatedSession = await persistenceService.loadSession(currentSession.id);
-			if (updatedSession) {
-				currentSession = updatedSession;
-			}
+			const result = await persistenceService.addAnnotation(currentSession.id, startTimeMs, endTimeMs, label, color);
+			currentSession = result.session;
 		} catch (error) {
 			console.error('Failed to create annotation:', error);
 		}
@@ -435,11 +454,8 @@
 		
 		// Always treat this as a real update request
 		try {
-			await persistenceService.updateAnnotation(currentSession.id, id, updates);
-			const updatedSession = await persistenceService.loadSession(currentSession.id);
-			if (updatedSession) {
-				currentSession = updatedSession;
-			}
+			const updatedSession = await persistenceService.updateAnnotation(currentSession.id, id, updates);
+			currentSession = updatedSession;
 		} catch (error) {
 			console.error('Failed to update annotation:', error);
 		}
@@ -450,11 +466,8 @@
 		if (!currentSession) return;
 		
 		try {
-			await persistenceService.removeAnnotation(currentSession.id, id);
-			const updatedSession = await persistenceService.loadSession(currentSession.id);
-			if (updatedSession) {
-				currentSession = updatedSession;
-			}
+			const updatedSession = await persistenceService.removeAnnotation(currentSession.id, id);
+			currentSession = updatedSession;
 		} catch (error) {
 			console.error('Failed to delete annotation:', error);
 		}
@@ -469,11 +482,8 @@
 		if (!currentSession) return;
 		
 		try {
-			await persistenceService.addAnnotation(currentSession.id, startTimeMs, endTimeMs, finalLabel, finalColor, isPoint);
-			const updatedSession = await persistenceService.loadSession(currentSession.id);
-			if (updatedSession) {
-				currentSession = updatedSession;
-			}
+			const result = await persistenceService.addAnnotation(currentSession.id, startTimeMs, endTimeMs, finalLabel, finalColor, isPoint);
+			currentSession = result.session;
 		} catch (error) {
 			console.error('Failed to create annotation from canvas:', error);
 		}
@@ -743,12 +753,8 @@
 		if (!currentSession) return;
 		
 		try {
-			await persistenceService.updateBeatsPerLine(currentSession.id, beatsPerLine);
-			// Reload session to get updated data
-			const updatedSession = await persistenceService.loadSession(currentSession.id);
-			if (updatedSession) {
-				currentSession = updatedSession;
-			}
+			const updatedSession = await persistenceService.updateBeatsPerLine(currentSession.id, beatsPerLine);
+			currentSession = updatedSession;
 		} catch (error) {
 			console.error('Failed to update beats per line:', error);
 		}
@@ -988,13 +994,13 @@
 			</div>
 
 			<!-- Spectrogram Display -->
-			{#if currentSession}
+			{#if currentSession && !isSessionInitializing}
 				<SvgWaveformDisplay
 					beats={currentSession.beats}
 					{currentBeatIndex}
 					{currentTime}
 					{bpm}
-					audioBuffer={currentSession.mp3Blob}
+					{audioEngine}
 					{beatOffset}
 					beatsPerLine={currentSession.beatsPerLine}
 					onChunkLoop={handleChunkLoop}
@@ -1008,6 +1014,16 @@
 					onAnnotationDeleted={handleAnnotationDeleted}
 					onAnnotationModalStateChange={handleAnnotationModalStateChange}
 				/>
+			{:else if isSessionInitializing}
+				<!-- Loading state for waveform -->
+				<div class="bg-gray-800 rounded-lg p-8 text-center">
+					<div class="text-gray-400">
+						<div class="animate-pulse">Loading and analyzing audio...</div>
+						{#if isDetectingBpm}
+							<div class="text-sm mt-2">Detecting BPM...</div>
+						{/if}
+					</div>
+				</div>
 			{/if}
 
 			<!-- Beat Grid (Commented out temporarily) -->

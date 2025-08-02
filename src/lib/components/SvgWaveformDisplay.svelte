@@ -1,8 +1,8 @@
 <script lang="ts">
-	import WaveSurfer from 'wavesurfer.js';
 	import AnnotationPopup from './AnnotationPopup.svelte';
 	import HtmlAnnotation from './HtmlAnnotation.svelte';
 	import type { Annotation, Beat } from '../types';
+	import type { AudioEngine } from '../audio/AudioEngine';
 	import {
 		calculateChunkBounds,
 		generateWaveformBars,
@@ -17,7 +17,7 @@
 		currentBeatIndex: number;
 		currentTime: number;
 		bpm: number;
-		audioBuffer: ArrayBuffer | null;
+		audioEngine: AudioEngine;
 		beatOffset: number;
 		beatsPerLine: number;
 		onChunkLoop?: (chunkIndex: number, startTime: number, endTime: number) => void;
@@ -38,7 +38,7 @@
 		currentBeatIndex = -1, 
 		currentTime = 0, 
 		bpm = 120,
-		audioBuffer = null,
+		audioEngine,
 		beatOffset = 0,
 		beatsPerLine = 4,
 		onChunkLoop,
@@ -55,7 +55,6 @@
 
 	// Component state
 	let waveformContainer: HTMLDivElement | undefined = $state();
-	let wavesurfer: WaveSurfer | null = null;
 	let beatGrouping = $state(beatsPerLine);
 	let isInitialized = $state(false);
 	let peaksData: Float32Array | null = $state(null);
@@ -197,10 +196,10 @@
 		return chunks;
 	});
 
-	// Initialize WaveSurfer when audio buffer changes
+	// Initialize audio data when AudioEngine changes
 	$effect(() => {
-		if (audioBuffer) {
-			initializeWaveSurfer();
+		if (audioEngine) {
+			initializeFromAudioEngine();
 		}
 	});
 
@@ -302,52 +301,25 @@
 		}
 	});
 
-	async function initializeWaveSurfer() {
+	function initializeFromAudioEngine() {
 		try {
-			if (wavesurfer) {
-				wavesurfer.destroy();
+			const audioBuffer = audioEngine.getAudioBuffer();
+			if (!audioBuffer) {
+				console.error('No audio buffer available from AudioEngine');
+				return;
 			}
 
-			// Create hidden WaveSurfer instance for peak extraction
-			const hiddenContainer = document.createElement('div');
-			hiddenContainer.style.display = 'none';
-			document.body.appendChild(hiddenContainer);
-
-			wavesurfer = WaveSurfer.create({
-				container: hiddenContainer,
-				waveColor: 'transparent',
-				progressColor: 'transparent',
-				height: 0
-			});
-
-			wavesurfer.on('decode', () => {
-				extractPeaksData();
-			});
-
-			const blob = new Blob([audioBuffer!], { type: 'audio/mp3' });
-			const url = URL.createObjectURL(blob);
-			await wavesurfer.load(url);
-			URL.revokeObjectURL(url);
-		} catch (error) {
-			console.error('Failed to initialize WaveSurfer:', error);
-		}
-	}
-
-	function extractPeaksData() {
-		if (!wavesurfer) return;
-		try {
-			const audioBuffer = wavesurfer.getDecodedData();
-			if (!audioBuffer) return;
-
+			// Extract peaks data directly from AudioBuffer
 			audioSampleRate = audioBuffer.sampleRate;
 			audioDuration = audioBuffer.duration;
 			peaksData = audioBuffer.getChannelData(0);
 			
 			isInitialized = true;
 		} catch (error) {
-			console.error('Failed to extract peaks data:', error);
+			console.error('Failed to initialize from AudioEngine:', error);
 		}
 	}
+
 
 
 
