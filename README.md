@@ -125,3 +125,8 @@ Users are responsible for the copyright of imported MP3 files. This tool is desi
 - 🐛 **Issues**: [GitHub Issues](./issues)
 - 💬 **Discussions**: [GitHub Discussions](./discussions)
 - 📧 **Contact**: [Your contact info]
+
+
+## Interesting links:
+
+https://ciiec.buap.mx/Spectrogram/

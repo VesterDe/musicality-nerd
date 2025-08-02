@@ -30,7 +30,7 @@ bun run lint         # Lint code
 ### Core Components
 
 **Main Application** (`src/routes/+page.svelte`):
-- Central hub managing audio playback, BPM detection, tagging, and visualization
+- Central hub managing audio playback, BPM detection, and visualization
 - Handles drag & drop, keyboard shortcuts, and state management
 
 **Audio System** (`src/lib/audio/`):
@@ -39,19 +39,18 @@ bun run lint         # Lint code
 
 **Visualization** (`src/lib/components/`):
 - `SpectrogramDisplay.svelte`: Chunked waveform display with beat grid overlay
-- `TagManager.svelte`: Beat annotation system
 - `BeatGrid.svelte`: Legacy component (unused)
 
 **Persistence** (`src/lib/persistence/PersistenceService.ts`):
 - Full session management with IndexedDB
-- Stores audio blobs, tags, BPM settings, and session metadata
+- Stores audio blobs, BPM settings, and session metadata
 
 ## Key Implementation Details
 
 1. **Audio Processing**: Uses AudioContext for precise timing and playback control
 2. **Chunked Display**: Spectrogram splits audio into configurable beats-per-line chunks
 3. **Beat Synchronization**: Manual beat offset adjustment with visual markers
-4. **Keyboard Controls**: Space (play/pause/tag), arrows (navigation)
+4. **Keyboard Controls**: Space (play/pause), arrows (navigation)
 5. **Loop Functionality**: Practice specific sections with chunk-based looping
 
 ## Current Feature Status
@@ -61,7 +60,6 @@ bun run lint         # Lint code
 - Automatic BPM detection with manual override
 - Chunked spectrogram visualization
 - Beat grid overlay with offset adjustment
-- Tag system for beat annotation
 - Full persistence layer
 - Loop controls for practice
 

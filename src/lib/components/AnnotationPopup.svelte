@@ -98,29 +98,35 @@
 		return `${minutes}:${remainingSeconds.padStart(4, '0')}`;
 	}
 
-	// Calculate popup position to stay within viewport
+	// Calculate popup position to stay within viewport - only when opening
+	let adjustedX = $state(x);
+	let adjustedY = $state(y);
+	
 	$effect(() => {
 		if (visible && typeof window !== 'undefined') {
-			const popup = document.querySelector('.annotation-popup') as HTMLElement;
-			if (popup) {
-				const rect = popup.getBoundingClientRect();
-				const viewportWidth = window.innerWidth;
-				const viewportHeight = window.innerHeight;
-				
-				// Adjust position if popup would go off-screen
-				let adjustedX = x;
-				let adjustedY = y;
-				
-				if (x + rect.width > viewportWidth) {
-					adjustedX = viewportWidth - rect.width - 10;
+			// Use requestAnimationFrame to avoid blocking the render
+			requestAnimationFrame(() => {
+				const popup = document.querySelector('.annotation-popup') as HTMLElement;
+				if (popup) {
+					const rect = popup.getBoundingClientRect();
+					const viewportWidth = window.innerWidth;
+					const viewportHeight = window.innerHeight;
+					
+					// Adjust position if popup would go off-screen
+					let newX = x;
+					let newY = y;
+					
+					if (x + rect.width > viewportWidth) {
+						newX = viewportWidth - rect.width - 10;
+					}
+					if (y + rect.height > viewportHeight) {
+						newY = y - rect.height - 10;
+					}
+					
+					adjustedX = Math.max(10, newX);
+					adjustedY = Math.max(10, newY);
 				}
-				if (y + rect.height > viewportHeight) {
-					adjustedY = y - rect.height - 10;
-				}
-				
-				popup.style.left = `${Math.max(10, adjustedX)}px`;
-				popup.style.top = `${Math.max(10, adjustedY)}px`;
-			}
+			});
 		}
 	});
 </script>
@@ -129,8 +135,8 @@
 	<!-- Backdrop -->
 	<div 
 		class="fixed inset-0 bg-black/50 z-40 mb-0"
-		on:click={handleCancel}
-		on:keydown={handleKeydown}
+		onclick={handleCancel}
+		onkeydown={handleKeydown}
 		role="button"
 		tabindex="-1"
 	></div>
@@ -138,7 +144,7 @@
 	<!-- Popup -->
 	<div 
 		class="annotation-popup fixed z-50 bg-gray-800 border border-gray-600 rounded-lg shadow-xl p-4 min-w-80"
-		style="left: {x}px; top: {y}px;"
+		style="left: {adjustedX}px; top: {adjustedY}px;"
 	>
 		<div class="space-y-4">
 			<!-- Header -->
@@ -152,7 +158,7 @@
 				</h3>
 				<button
 					class="text-gray-400 hover:text-gray-300 text-lg leading-none"
-					on:click={handleCancel}
+					onclick={handleCancel}
 					title="Cancel"
 				>
 					×
@@ -183,7 +189,7 @@
 					class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg 
 						   text-white placeholder-gray-400 focus:outline-none focus:ring-2 
 						   focus:ring-blue-500 focus:border-transparent"
-					on:keydown={handleKeydown}
+					onkeydown={handleKeydown}
 				/>
 			</div>
 
@@ -207,7 +213,7 @@
 								class="w-6 h-6 rounded border-2 transition-all hover:scale-110
 									   {annotationColor === color ? 'border-white scale-110' : 'border-gray-600 hover:border-gray-400'}"
 								style="background-color: {color}"
-								on:click={() => annotationColor = color}
+								onclick={() => annotationColor = color}
 								title={color}
 							></button>
 						{/each}
@@ -219,14 +225,14 @@
 			<div class="flex space-x-2 pt-2">
 				<button
 					class="flex-1 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-					on:click={handleSave}
+					onclick={handleSave}
 					disabled={!annotationLabel.trim()}
 				>
 {editingAnnotation ? 'Update Annotation' : 'Create Annotation'}
 				</button>
 				<button
 					class="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
-					on:click={handleCancel}
+					onclick={handleCancel}
 				>
 					Cancel
 				</button>

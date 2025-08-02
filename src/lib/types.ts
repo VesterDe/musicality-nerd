@@ -5,13 +5,8 @@
 export interface Beat {
 	index: number;
 	time: number;
-	tags: string[];
 }
 
-export interface Tag {
-	label: string;
-	color: string;
-}
 
 export interface Annotation {
 	id: string;
@@ -33,7 +28,6 @@ export interface TrackSession {
 	manualBpm: boolean; // Whether BPM was manually set
 	beatsPerLine: number; // Number of beats per chunk/line in spectrogram
 	beats: Beat[];
-	tags: Record<string, Tag>;
 	annotations: Annotation[]; // Array of annotations with absolute timing
 }
 

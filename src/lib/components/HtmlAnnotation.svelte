@@ -11,6 +11,7 @@
 		onEdit?: (annotation: Annotation) => void;
 		onDelete?: (annotationId: string) => void;
 		onMove?: (annotationId: string, newStartTimeMs: number, newEndTimeMs: number) => void;
+		isPlaceholder?: boolean;
 	}
 
 	let {
@@ -21,7 +22,8 @@
 		chunkIndex,
 		onEdit,
 		onDelete,
-		onMove
+		onMove,
+		isPlaceholder = false
 	}: Props = $props();
 
 	// Local state
@@ -48,11 +50,10 @@
 	
 	const annotationY = $derived(chunkHeight - 60); // Position above beat markers
 
-	// Check if annotation is visible in this chunk
-	const isVisible = $derived(annotation.startTimeMs < chunkBounds.endTimeMs && annotation.endTimeMs > chunkBounds.startTimeMs);
+	// Visibility is already handled by parent component, so we always render
 
 	function handleMouseDown(event: MouseEvent) {
-		if (!isVisible) return;
+		if (isPlaceholder) return;
 		
 		event.stopPropagation();
 		
@@ -136,21 +137,27 @@
 	}
 </script>
 
-{#if isVisible}
-	<div
-		class="absolute cursor-pointer group transition-all duration-150"
-		class:opacity-80={!isHovered}
-		class:opacity-100={isHovered}
+<div
+		class="absolute group"
+		class:transition-all={!isPlaceholder}
+		class:duration-150={!isPlaceholder}
+		class:cursor-pointer={!isPlaceholder}
+		class:cursor-default={isPlaceholder}
+		class:opacity-80={!isHovered && !isPlaceholder}
+		class:opacity-100={isHovered && !isPlaceholder}
+		class:opacity-60={isPlaceholder}
+		class:animate-pulse={isPlaceholder}
 		style:left="{startX()}px"
 		style:top="{annotationY}px"
 		style:width="{width}px"
 		style:height="20px"
-		role="button"
-		tabindex="0"
-		onmouseenter={() => isHovered = true}
-		onmouseleave={() => isHovered = false}
+		role={isPlaceholder ? "presentation" : "button"}
+		tabindex={isPlaceholder ? -1 : 0}
+		onmouseenter={() => !isPlaceholder && (isHovered = true)}
+		onmouseleave={() => !isPlaceholder && (isHovered = false)}
 		onmousedown={handleMouseDown}
 		onkeydown={(e) => {
+			if (isPlaceholder) return;
 			if (e.key === 'Enter' || e.key === ' ') {
 				handleEdit();
 			} else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -182,7 +189,7 @@
 				</div>
 				
 				<!-- Hover buttons -->
-				{#if isHovered}
+				{#if isHovered && !isPlaceholder}
 					<div class="absolute -top-1 -right-1 flex space-x-1">
 						<button
 							class="w-5 h-5 bg-blue-600 hover:bg-blue-700 rounded text-white text-xs flex items-center justify-center"
@@ -213,7 +220,7 @@
 				style:border="1px solid {annotation.color}"
 			>
 				<!-- Resize handles -->
-				{#if isHovered && !isPointAnnotation}
+				{#if isHovered && !isPointAnnotation && !isPlaceholder}
 					<div
 						class="resize-handle absolute left-0 top-0 w-2 h-full cursor-w-resize bg-white bg-opacity-20 hover:bg-opacity-40"
 						data-handle="start"
@@ -232,7 +239,7 @@
 					</div>
 					
 					<!-- Hover buttons -->
-					{#if isHovered}
+					{#if isHovered && !isPlaceholder}
 						<div class="flex space-x-1 ml-2">
 							<button
 								class="w-4 h-4 bg-blue-600 hover:bg-blue-700 rounded text-white text-xs flex items-center justify-center"
@@ -253,7 +260,7 @@
 				</div>
 				
 				<!-- Move indicator -->
-				{#if isHovered && width > 60}
+				{#if isHovered && width > 60 && !isPlaceholder}
 					<div class="absolute top-1 left-1/2 transform -translate-x-1/2 text-white text-xs opacity-60">
 						↔️
 					</div>
@@ -261,7 +268,6 @@
 			</div>
 		{/if}
 	</div>
-{/if}
 
 <style>
 	.point-annotation {

@@ -30,6 +30,7 @@
 	let isDetectingBpm = false;
 	let loopingChunkIndices = new Set<number>();
 	let autoFollow = false;
+	let isAnnotationModalOpen = false;
 	
 
 	onMount(async () => {
@@ -260,6 +261,11 @@
 	}
 
 	async function handleKeydown(event: KeyboardEvent) {
+		// Don't handle shortcuts when annotation modal is open
+		if (isAnnotationModalOpen) {
+			return;
+		}
+
 		// Prevent default for our shortcuts
 		if (event.code === 'Space' || event.code === 'ArrowLeft' || event.code === 'ArrowRight' || event.code === 'Enter') {
 			event.preventDefault();
@@ -311,6 +317,10 @@
 		// Add unsaved changes warning if needed
 		// For now, we auto-save everything, so this is just a placeholder
 		return;
+	}
+
+	function handleAnnotationModalStateChange(isOpen: boolean) {
+		isAnnotationModalOpen = isOpen;
 	}
 
 	function autoScrollToCurrentChunk() {
@@ -807,7 +817,7 @@
 			{#if currentSession}
 				<button
 					class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm transition-colors"
-					on:click={clearCurrentSong}
+					onclick={clearCurrentSong}
 				>
 					🔄 New Song
 				</button>
@@ -826,11 +836,11 @@
 				role="button"
 				tabindex="0"
 				aria-label="Drop MP3 file here or click to browse"
-				on:dragover={handleDragOver}
-				on:dragleave={handleDragLeave}
-				on:drop={handleDrop}
-				on:click={handleDropZoneClick}
-				on:keydown={(e) => e.key === 'Enter' && handleDropZoneClick()}
+				ondragover={handleDragOver}
+				ondragleave={handleDragLeave}
+				ondrop={handleDrop}
+				onclick={handleDropZoneClick}
+				onkeydown={(e) => e.key === 'Enter' && handleDropZoneClick()}
 			>
 				<div class="space-y-4">
 					<div class="text-4xl">🎵</div>
@@ -843,7 +853,7 @@
 						accept="audio/*"
 						class="hidden"
 						bind:this={fileInput}
-						on:change={(e) => {
+						onchange={(e) => {
 							const target = e.target as HTMLInputElement;
 							if (target.files) {
 								handleFilesDrop(target.files);
@@ -867,14 +877,14 @@
 					<input 
 						type="number" 
 						bind:value={bpm}
-						on:input={async () => await updateSessionBpm(true)}
+						oninput={async () => await updateSessionBpm(true)}
 						class="bg-gray-700 text-white px-2 py-1 rounded w-16 text-sm"
 						min="60" 
 						max="200"
 					/>
 					<button 
 						class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs transition-colors"
-						on:click={recalculateBpmFromSong}
+						onclick={recalculateBpmFromSong}
 						disabled={isDetectingBpm}
 					>
 						{isDetectingBpm ? 'Calculating...' : 'Recalculate'}
@@ -893,7 +903,7 @@
 						<input 
 							type="range" 
 							bind:value={beatOffset}
-							on:input={handleOffsetInput}
+							oninput={handleOffsetInput}
 							min={-(60 / bpm) * 500}
 							max={(60 / bpm) * 500}
 							step="5"
@@ -916,7 +926,7 @@
 				<div class="flex items-center space-x-4">
 					<button 
 						class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors"
-						on:click={togglePlayback}
+            onclick={togglePlayback}
 					>
 						{isPlaying ? '⏸️' : '▶️'}
 						{isPlaying ? 'Pause' : 'Play'}
@@ -929,8 +939,8 @@
 						<input 
 							type="range" 
 							value={currentTime}
-							on:input={handleProgressInput}
-							on:change={handleProgressChange}
+							oninput={handleProgressInput}
+							onchange={handleProgressChange}
 							min="0"
 							max={duration}
 							step="0.1"
@@ -986,6 +996,7 @@
 					onAnnotationCreated={handleAnnotationCreatedFromCanvas}
 					onAnnotationUpdated={handleAnnotationUpdated}
 					onAnnotationDeleted={handleAnnotationDeleted}
+					onAnnotationModalStateChange={handleAnnotationModalStateChange}
 				/>
 			{/if}
 
