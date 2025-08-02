@@ -1,6 +1,6 @@
 import { get, set, del, keys, clear } from 'idb-keyval';
 import { v4 as uuidv4 } from 'uuid';
-import type { TrackSession } from '../types';
+import type { TrackSession, Annotation } from '../types';
 
 const CURRENT_SESSION_KEY = 'current-session';
 const SESSION_PREFIX = 'session-';
@@ -64,7 +64,7 @@ export class PersistenceService {
 			manualBpm: false, // BPM not manually set initially
 			beatsPerLine: 4, // Default beats per line
 			beats: [],
-			tags: {}
+			annotations: [] // Initialize empty annotations array
 		};
 
 		await this.saveSession(session);
@@ -88,20 +88,12 @@ export class PersistenceService {
 		const offsetInSeconds = session.beatOffset / 1000; // Convert ms to seconds
 		const totalBeats = Math.floor((duration - offsetInSeconds) / beatInterval);
 		
-		// Preserve existing tags when regenerating beats
-		const existingTags = new Map<number, string[]>();
-		session.beats.forEach(beat => {
-			if (beat.tags.length > 0) {
-				existingTags.set(beat.index, beat.tags);
-			}
-		});
 
 		session.beats = [];
 		for (let i = 0; i < totalBeats; i++) {
 			session.beats.push({
 				index: i,
 				time: (i * beatInterval) + offsetInSeconds,
-				tags: existingTags.get(i) || []
 			});
 		}
 
@@ -124,87 +116,18 @@ export class PersistenceService {
 		const offsetInSeconds = session.beatOffset / 1000; // Convert ms to seconds
 		const totalBeats = Math.floor((duration - offsetInSeconds) / beatInterval);
 		
-		// Preserve existing tags when regenerating beats
-		const existingTags = new Map<number, string[]>();
-		session.beats.forEach(beat => {
-			if (beat.tags.length > 0) {
-				existingTags.set(beat.index, beat.tags);
-			}
-		});
 
 		session.beats = [];
 		for (let i = 0; i < totalBeats; i++) {
 			session.beats.push({
 				index: i,
 				time: (i * beatInterval) + offsetInSeconds,
-				tags: existingTags.get(i) || []
 			});
 		}
 
 		await this.saveSession(session);
 	}
 
-	/**
-	 * Add or remove a tag for a specific beat
-	 */
-	async toggleBeatTag(sessionId: string, beatIndex: number, tagId: string): Promise<void> {
-		const session = await this.loadSession(sessionId);
-		if (!session) {
-			throw new Error('Session not found');
-		}
-
-		const beat = session.beats.find(b => b.index === beatIndex);
-		if (!beat) {
-			throw new Error('Beat not found');
-		}
-
-		const tagIndex = beat.tags.indexOf(tagId);
-		if (tagIndex >= 0) {
-			// Remove tag
-			beat.tags.splice(tagIndex, 1);
-		} else {
-			// Add tag
-			beat.tags.push(tagId);
-		}
-
-		await this.saveSession(session);
-	}
-
-	/**
-	 * Add a new tag to the session
-	 */
-	async addTag(sessionId: string, tagId: string, label: string, color: string): Promise<void> {
-		const session = await this.loadSession(sessionId);
-		if (!session) {
-			throw new Error('Session not found');
-		}
-
-		session.tags[tagId] = { label, color };
-		await this.saveSession(session);
-	}
-
-	/**
-	 * Remove a tag from the session (and all beats)
-	 */
-	async removeTag(sessionId: string, tagId: string): Promise<void> {
-		const session = await this.loadSession(sessionId);
-		if (!session) {
-			throw new Error('Session not found');
-		}
-
-		// Remove tag from all beats
-		session.beats.forEach(beat => {
-			const tagIndex = beat.tags.indexOf(tagId);
-			if (tagIndex >= 0) {
-				beat.tags.splice(tagIndex, 1);
-			}
-		});
-
-		// Remove tag definition
-		delete session.tags[tagId];
-
-		await this.saveSession(session);
-	}
 
 	/**
 	 * Update beats per line for a session
@@ -306,5 +229,120 @@ export class PersistenceService {
 		
 		// Warn if using more than 80% of quota
 		return usage.used / usage.quota > 0.8;
+	}
+
+	/**
+	 * Add an annotation to a session
+	 */
+	async addAnnotation(sessionId: string, startTimeMs: number, endTimeMs: number, label: string, color: string, isPoint?: boolean): Promise<string> {
+		const session = await this.loadSession(sessionId);
+		if (!session) {
+			throw new Error('Session not found');
+		}
+
+		// Snap to 25ms increments
+		const snappedStartTime = Math.round(startTimeMs / 25) * 25;
+		const snappedEndTime = Math.round(endTimeMs / 25) * 25;
+
+		const annotation: Annotation = {
+			id: uuidv4(),
+			startTimeMs: snappedStartTime,
+			endTimeMs: snappedEndTime,
+			label,
+			color,
+			isPoint
+		};
+
+		// Initialize annotations array if it doesn't exist (for backwards compatibility)
+		if (!session.annotations) {
+			session.annotations = [];
+		}
+
+		session.annotations.push(annotation);
+		await this.saveSession(session);
+		
+		return annotation.id;
+	}
+
+	/**
+	 * Update an existing annotation
+	 */
+	async updateAnnotation(sessionId: string, annotationId: string, updates: Partial<Omit<Annotation, 'id'>>): Promise<void> {
+		const session = await this.loadSession(sessionId);
+		if (!session) {
+			throw new Error('Session not found');
+		}
+
+		// Initialize annotations array if it doesn't exist (for backwards compatibility)
+		if (!session.annotations) {
+			session.annotations = [];
+		}
+
+		const annotation = session.annotations.find(a => a.id === annotationId);
+		if (!annotation) {
+			throw new Error('Annotation not found');
+		}
+
+		// Apply updates with snapping for time values
+		if (updates.startTimeMs !== undefined) {
+			annotation.startTimeMs = Math.round(updates.startTimeMs / 25) * 25;
+		}
+		if (updates.endTimeMs !== undefined) {
+			annotation.endTimeMs = Math.round(updates.endTimeMs / 25) * 25;
+		}
+		if (updates.label !== undefined) {
+			annotation.label = updates.label;
+		}
+		if (updates.color !== undefined) {
+			annotation.color = updates.color;
+		}
+		if (updates.rowIndex !== undefined) {
+			annotation.rowIndex = updates.rowIndex;
+		}
+
+		await this.saveSession(session);
+	}
+
+	/**
+	 * Remove an annotation from a session
+	 */
+	async removeAnnotation(sessionId: string, annotationId: string): Promise<void> {
+		const session = await this.loadSession(sessionId);
+		if (!session) {
+			throw new Error('Session not found');
+		}
+
+		// Initialize annotations array if it doesn't exist (for backwards compatibility)
+		if (!session.annotations) {
+			session.annotations = [];
+		}
+
+		const annotationIndex = session.annotations.findIndex(a => a.id === annotationId);
+		if (annotationIndex < 0) {
+			throw new Error('Annotation not found');
+		}
+
+		session.annotations.splice(annotationIndex, 1);
+		await this.saveSession(session);
+	}
+
+	/**
+	 * Get all annotations for a session within a time range
+	 */
+	async getAnnotationsInRange(sessionId: string, startTimeMs: number, endTimeMs: number): Promise<Annotation[]> {
+		const session = await this.loadSession(sessionId);
+		if (!session) {
+			throw new Error('Session not found');
+		}
+
+		// Initialize annotations array if it doesn't exist (for backwards compatibility)
+		if (!session.annotations) {
+			return [];
+		}
+
+		return session.annotations.filter(annotation => 
+			// Check if annotation overlaps with the requested range
+			annotation.startTimeMs < endTimeMs && annotation.endTimeMs > startTimeMs
+		);
 	}
 } 

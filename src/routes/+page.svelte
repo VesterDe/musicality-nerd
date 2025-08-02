@@ -4,9 +4,8 @@
 	import { AudioEngine } from '$lib/audio/AudioEngine';
 	import { BpmDetector } from '$lib/audio/BpmDetector';
 	import { PersistenceService } from '$lib/persistence/PersistenceService';
-	import TagManager from '$lib/components/TagManager.svelte';
-	import SpectrogramDisplay from '$lib/components/SpectrogramDisplay.svelte';
-	import type { TrackSession, Tag } from '$lib/types';
+	import SvgWaveformDisplay from '$lib/components/SvgWaveformDisplay.svelte';
+	import type { TrackSession, Annotation } from '$lib/types';
 
 	// Constants
 	const CURRENT_SESSION_KEY = 'current-session';
@@ -23,8 +22,6 @@
 	let duration = 0;
 	let bpm = 120;
 	let beatOffset = 0; // in milliseconds
-	let isArmedForTagging = false;
-	let armedTagId: string | null = null;
 	let isDragOver = false;
 
 	// UI state
@@ -33,6 +30,7 @@
 	let isDetectingBpm = false;
 	let loopingChunkIndices = new Set<number>();
 	let autoFollow = false;
+	
 
 	onMount(async () => {
 		// Initialize services
@@ -94,6 +92,10 @@
 		try {
 			const lastSession = await persistenceService.loadCurrentSession();
 			if (lastSession) {
+				// Ensure backwards compatibility for annotations
+				if (!lastSession.annotations) {
+					lastSession.annotations = [];
+				}
 				currentSession = lastSession;
 				await audioEngine.loadTrack(lastSession.mp3Blob);
 				duration = audioEngine.getDuration();
@@ -265,13 +267,7 @@
 
 		switch (event.code) {
 			case 'Space':
-				if (isArmedForTagging && armedTagId && currentSession) {
-					// Tag toggling mode
-					await toggleCurrentBeatTag();
-				} else {
-					// Regular playback
-					await togglePlayback();
-				}
+				await togglePlayback();
 				break;
 				
 			case 'ArrowLeft':
@@ -284,20 +280,6 @@
 		}
 	}
 
-	async function toggleCurrentBeatTag() {
-		if (!currentSession || !armedTagId || currentBeatIndex < 0) return;
-		
-		try {
-			await persistenceService.toggleBeatTag(currentSession.id, currentBeatIndex, armedTagId);
-			// Reload session to get updated beats
-			const updatedSession = await persistenceService.loadSession(currentSession.id);
-			if (updatedSession) {
-				currentSession = updatedSession;
-			}
-		} catch (error) {
-			console.error('Failed to toggle tag:', error);
-		}
-	}
 
 	async function jumpToPreviousBoundary() {
 		if (!currentSession) return;
@@ -412,45 +394,69 @@
 		return `${mins}:${secs.toString().padStart(2, '0')}`;
 	}
 
-	// Tag management handlers
-	async function handleTagCreated(event: CustomEvent<{ id: string; label: string; color: string }>) {
+	// Annotation handlers
+	async function handleAnnotationCreated(event: CustomEvent<{ startTimeMs: number; endTimeMs: number; label: string; color: string }>) {
 		if (!currentSession) return;
 		
-		const { id, label, color } = event.detail;
+		const { startTimeMs, endTimeMs, label, color } = event.detail;
 		try {
-			await persistenceService.addTag(currentSession.id, id, label, color);
+			await persistenceService.addAnnotation(currentSession.id, startTimeMs, endTimeMs, label, color);
 			const updatedSession = await persistenceService.loadSession(currentSession.id);
 			if (updatedSession) {
 				currentSession = updatedSession;
 			}
 		} catch (error) {
-			console.error('Failed to create tag:', error);
+			console.error('Failed to create annotation:', error);
 		}
 	}
 
-	async function handleTagDeleted(event: CustomEvent<{ id: string }>) {
+	async function handleAnnotationUpdated(id: string, updates: Partial<Annotation>) {
 		if (!currentSession) return;
 		
-		const { id } = event.detail;
+		// Always treat this as a real update request
 		try {
-			await persistenceService.removeTag(currentSession.id, id);
+			await persistenceService.updateAnnotation(currentSession.id, id, updates);
 			const updatedSession = await persistenceService.loadSession(currentSession.id);
 			if (updatedSession) {
 				currentSession = updatedSession;
 			}
-			// Disarm if this was the armed tag
-			if (armedTagId === id) {
-				armedTagId = null;
-				isArmedForTagging = false;
-			}
 		} catch (error) {
-			console.error('Failed to delete tag:', error);
+			console.error('Failed to update annotation:', error);
 		}
 	}
 
-	function handleTagArmed(event: CustomEvent<{ id: string | null }>) {
-		armedTagId = event.detail.id;
-		isArmedForTagging = armedTagId !== null;
+
+	async function handleAnnotationDeleted(id: string) {
+		if (!currentSession) return;
+		
+		try {
+			await persistenceService.removeAnnotation(currentSession.id, id);
+			const updatedSession = await persistenceService.loadSession(currentSession.id);
+			if (updatedSession) {
+				currentSession = updatedSession;
+			}
+		} catch (error) {
+			console.error('Failed to delete annotation:', error);
+		}
+	}
+
+
+	async function handleAnnotationCreatedFromCanvas(startTimeMs: number, endTimeMs: number, label?: string, color?: string, isPoint?: boolean) {
+		// Use provided label/color or defaults
+		const finalLabel = label || `Annotation ${(currentSession?.annotations?.length || 0) + 1}`;
+		const finalColor = color || '#ff5500';
+		
+		if (!currentSession) return;
+		
+		try {
+			await persistenceService.addAnnotation(currentSession.id, startTimeMs, endTimeMs, finalLabel, finalColor, isPoint);
+			const updatedSession = await persistenceService.loadSession(currentSession.id);
+			if (updatedSession) {
+				currentSession = updatedSession;
+			}
+		} catch (error) {
+			console.error('Failed to create annotation from canvas:', error);
+		}
 	}
 
 	function handleDropZoneClick() {
@@ -751,8 +757,6 @@
 		duration = 0;
 		bpm = 120;
 		beatOffset = 0;
-		isArmedForTagging = false;
-		armedTagId = null;
 		currentBeatIndex = -1;
 		
 		// Dispose of audio resources
@@ -965,9 +969,8 @@
 
 			<!-- Spectrogram Display -->
 			{#if currentSession}
-				<SpectrogramDisplay
+				<SvgWaveformDisplay
 					beats={currentSession.beats}
-					tags={currentSession.tags}
 					{currentBeatIndex}
 					{currentTime}
 					{bpm}
@@ -979,6 +982,10 @@
 					{loopingChunkIndices}
 					onSeek={(time) => audioEngine.seekTo(time)}
 					onBeatsPerLineChange={updateBeatsPerLine}
+					annotations={currentSession.annotations || []}
+					onAnnotationCreated={handleAnnotationCreatedFromCanvas}
+					onAnnotationUpdated={handleAnnotationUpdated}
+					onAnnotationDeleted={handleAnnotationDeleted}
 				/>
 			{/if}
 
@@ -986,27 +993,18 @@
 			<!-- {#if currentSession.beats.length > 0}
 				<BeatGrid 
 					beats={currentSession.beats}
-					tags={currentSession.tags}
 					{currentBeatIndex}
 					{currentTime}
 					{bpm}
 				/>
 			{/if} -->
 
-			<!-- Tag Manager -->
-				<TagManager 
-					tags={currentSession.tags}
-					{armedTagId}
-					on:tag-created={handleTagCreated}
-					on:tag-deleted={handleTagDeleted}
-					on:tag-armed={handleTagArmed}
-				/>
 
 			<!-- Keyboard Shortcuts Help -->
 			<div class="bg-gray-800 rounded-lg p-4">
 				<h3 class="text-sm font-semibold text-gray-300 mb-2">Keyboard Shortcuts</h3>
 				<div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-400">
-					<div><kbd class="bg-gray-700 px-1 rounded">Space</kbd> {isArmedForTagging ? 'Tag current beat' : 'Play/Pause'}</div>
+					<div><kbd class="bg-gray-700 px-1 rounded">Space</kbd> Play/Pause</div>
 					<div><kbd class="bg-gray-700 px-1 rounded">←</kbd> Previous 8-beat boundary</div>
 					<div><kbd class="bg-gray-700 px-1 rounded">→</kbd> Next 8-beat boundary</div>
 				</div>

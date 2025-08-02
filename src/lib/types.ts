@@ -13,6 +13,16 @@ export interface Tag {
 	color: string;
 }
 
+export interface Annotation {
+	id: string;
+	startTimeMs: number; // Absolute start time in milliseconds from song beginning
+	endTimeMs: number; // Absolute end time in milliseconds from song beginning (for point annotations: startTimeMs === endTimeMs)
+	label: string;
+	color: string;
+	isPoint?: boolean; // True for point annotations, false/undefined for duration annotations
+	rowIndex?: number; // For vertical stacking when annotations overlap
+}
+
 export interface TrackSession {
 	id: string;
 	mp3Blob: ArrayBuffer;
@@ -24,6 +34,7 @@ export interface TrackSession {
 	beatsPerLine: number; // Number of beats per chunk/line in spectrogram
 	beats: Beat[];
 	tags: Record<string, Tag>;
+	annotations: Annotation[]; // Array of annotations with absolute timing
 }
 
 export interface SpectrogramConfig {
