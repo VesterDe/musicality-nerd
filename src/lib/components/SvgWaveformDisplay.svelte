@@ -550,7 +550,7 @@
 		<div class="space-y-2">
 			{#each chunkData as chunk (chunk.index)}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="relative mb-0 bg-gray-900 rounded-lg overflow-hidden" data-chunk-index={chunk.index}>
+				<div class="relative mb-0 bg-gray-900 rounded-lg overflow-hidden {playheadInfo && playheadInfo.chunkIndex === chunk.index ? 'current-chunk' : ''}" data-chunk-index={chunk.index}>
 					<!-- Chunk Header -->
 					<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between">
 						<div>{chunk.headerInfo}</div>

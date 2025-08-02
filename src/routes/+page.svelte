@@ -11,28 +11,28 @@
 	const CURRENT_SESSION_KEY = 'current-session';
 
 	// Core services
-	let audioEngine: AudioEngine;
-	let bpmDetector: BpmDetector;
-	let persistenceService: PersistenceService;
+	let audioEngine: AudioEngine = $state(new AudioEngine());
+	let bpmDetector: BpmDetector = $state(new BpmDetector());
+	let persistenceService: PersistenceService = $state(new PersistenceService());
 
 	// Application state
-	let currentSession: TrackSession | null = null;
-	let isPlaying = false;
-	let currentTime = 0;
-	let duration = 0;
-	let bpm = 120;
-	let beatOffset = 0; // in milliseconds
-	let isDragOver = false;
-	let isSessionInitializing = false;
+	let currentSession: TrackSession | null = $state(null);
+	let isPlaying = $state(false);
+	let currentTime = $state(0);
+	let duration = $state(0);
+	let bpm = $state(120);
+	let beatOffset = $state(0); // in milliseconds
+	let isDragOver = $state(false);
+	let isSessionInitializing = $state(false);
 
 	// UI state
-	let currentBeatIndex = -1;
-	let fileInput: HTMLInputElement;
-	let isDetectingBpm = false;
-	let loopingChunkIndices = new Set<number>();
-	let autoFollow = false;
-	let isAnnotationModalOpen = false;
-	let offsetUpdateTimeout: number | null = null;
+	let currentBeatIndex = $state(-1);
+	let fileInput: HTMLInputElement | null = $state(null);
+	let isDetectingBpm = $state(false);
+	let loopingChunkIndices = $state(new Set<number>());
+	let autoFollow = $state(false);
+	let isAnnotationModalOpen = $state(false);
+	let offsetUpdateTimeout: number | null = $state(null);
 	
 
 	onMount(async () => {
@@ -358,52 +358,12 @@
 	function autoScrollToCurrentChunk() {
 		if (!autoFollow || !currentSession) return;
 
-		const spectrogramContainer = document.querySelector('.overflow-y-auto') as HTMLElement;
-		if (!spectrogramContainer) return;
-
-		// Calculate current chunk index (same logic as getCurrentChunkIndex)
-		const beatsPerChunk = currentSession.beatsPerLine;
-		const chunkDuration = beatsPerChunk * (60 / bpm);
-		const offsetInSeconds = beatOffset / 1000;
+		// Find the current chunk element using the class we added
+		const currentChunkElement = document.querySelector('.current-chunk');
 		
-		let currentChunkIndex: number;
-		
-		if (beatOffset > 0) {
-			if (currentTime < (chunkDuration - offsetInSeconds)) {
-				currentChunkIndex = -1;
-			} else {
-				const adjustedTime = currentTime + offsetInSeconds;
-				currentChunkIndex = Math.floor(adjustedTime / chunkDuration);
-			}
-		} else if (beatOffset < 0) {
-			if (currentTime < Math.abs(offsetInSeconds)) {
-				currentChunkIndex = -1;
-			} else {
-				const adjustedTime = currentTime + Math.abs(offsetInSeconds);
-				currentChunkIndex = Math.floor(adjustedTime / chunkDuration);
-			}
-		} else {
-			currentChunkIndex = Math.floor(currentTime / chunkDuration);
-		}
-
-		// Find the corresponding chunk container
-		const chunkContainers = spectrogramContainer.querySelectorAll('.chunk-container');
-		let targetChunkElement: Element | null = null;
-
-		if (currentChunkIndex === -1 && chunkContainers.length > 0) {
-			targetChunkElement = chunkContainers[0]; // First chunk is chunk -1 when it exists
-		} else if (currentChunkIndex >= 0) {
-			// Adjust index based on whether chunk -1 exists
-			const hasChunkMinusOne = beatOffset !== 0;
-			const elementIndex = hasChunkMinusOne ? currentChunkIndex + 1 : currentChunkIndex;
-			if (elementIndex < chunkContainers.length) {
-				targetChunkElement = chunkContainers[elementIndex];
-			}
-		}
-
-		// Scroll to the target chunk
-		if (targetChunkElement) {
-			targetChunkElement.scrollIntoView({
+		// Scroll to the current chunk
+		if (currentChunkElement) {
+			currentChunkElement.scrollIntoView({
 				behavior: 'smooth',
 				block: 'center'
 			});
@@ -803,23 +763,25 @@
 	}
 
 	// Auto-follow effect: scroll to current chunk when time changes and auto-follow is enabled
-	let lastScrollTime = 0;
-	let scrollThrottle = false;
-	
-	$: if (autoFollow && currentTime && !scrollThrottle) {
-		// Throttle scrolling to avoid excessive calls during playback
-		const now = Date.now();
-		if (now - lastScrollTime > 200) { // Max once per 200ms
-			scrollThrottle = true;
-			lastScrollTime = now;
-			
-			// Use requestAnimationFrame to ensure DOM is ready
-			requestAnimationFrame(() => {
-				autoScrollToCurrentChunk();
-				scrollThrottle = false;
-			});
-		}
-	}
+	let lastScrollTime = $state(0);
+	let scrollThrottle = $state(false);
+
+  $effect(() => {
+      if (autoFollow && currentTime && !scrollThrottle) {
+      // Throttle scrolling to avoid excessive calls during playback
+      const now = Date.now();
+      if (now - lastScrollTime > 200) { // Max once per 200ms
+        scrollThrottle = true;
+        lastScrollTime = now;
+        
+        // Use requestAnimationFrame to ensure DOM is ready
+        requestAnimationFrame(() => {
+          autoScrollToCurrentChunk();
+          scrollThrottle = false;
+        });
+      }
+    }
+  })
 </script>
 
 <main class="min-h-screen bg-gray-900 text-white">
