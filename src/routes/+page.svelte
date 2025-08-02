@@ -43,6 +43,8 @@
 		audioEngine.onTimeUpdate = (time) => {
 			currentTime = time;
 			updateCurrentBeat();
+			// Keep UI state in sync with audio engine state
+			isPlaying = audioEngine.playing;
 		};
 
 		audioEngine.onEnded = () => {
@@ -448,21 +450,44 @@
 	function handleChunkLoop(chunkIndex: number, startTime: number, endTime: number) {
 		if (!audioEngine) return;
 		
+		// Store scroll position before state change
+		const spectrogramContainer = document.querySelector('.overflow-y-auto');
+		const scrollTop = spectrogramContainer?.scrollTop || 0;
+		
 		audioEngine.setLoopPoints(startTime, endTime);
 		loopingChunkIndex = chunkIndex;
 		
-		// If not playing, start playback from loop start
-		if (!isPlaying) {
+		// Restore scroll position after state change
+		requestAnimationFrame(() => {
+			if (spectrogramContainer) {
+				spectrogramContainer.scrollTop = scrollTop;
+			}
+		});
+		
+		// Don't seek immediately - let it play naturally and loop when it reaches the end
+		// Only seek if we're currently outside the loop bounds
+		const currentPos = audioEngine.getCurrentTime();
+		if (currentPos < startTime || currentPos > endTime) {
 			audioEngine.seekTo(startTime);
-			togglePlayback();
 		}
 	}
 	
 	function handleClearLoop() {
 		if (!audioEngine) return;
 		
+		// Store scroll position before state change
+		const spectrogramContainer = document.querySelector('.overflow-y-auto');
+		const scrollTop = spectrogramContainer?.scrollTop || 0;
+		
 		audioEngine.clearLoop();
 		loopingChunkIndex = -1;
+		
+		// Restore scroll position after state change
+		requestAnimationFrame(() => {
+			if (spectrogramContainer) {
+				spectrogramContainer.scrollTop = scrollTop;
+			}
+		});
 	}
 
 	async function updateBeatsPerLine(beatsPerLine: number) {
@@ -515,6 +540,8 @@
 		audioEngine.onTimeUpdate = (time) => {
 			currentTime = time;
 			updateCurrentBeat();
+			// Keep UI state in sync with audio engine state
+			isPlaying = audioEngine.playing;
 		};
 
 		audioEngine.onEnded = () => {

@@ -93,19 +93,14 @@ export class AudioEngine {
 
 		// Start playback from current position
 		let offset = Number.isNaN(this.pauseTime) ? 0 : this.pauseTime;
-		let duration: number | undefined;
 		
 		if (this.loopEnabled) {
 			// Ensure we're within loop bounds
 			offset = Math.max(this.loopStartTime, Math.min(this.loopEndTime, offset));
-			duration = this.loopEndTime - offset;
 		}
 		
-		if (duration !== undefined && duration > 0) {
-			this.sourceNode.start(0, offset, duration);
-		} else {
-			this.sourceNode.start(0, offset);
-		}
+		// Always start without duration limit - we'll handle looping manually in the time update loop
+		this.sourceNode.start(0, offset);
 		
 		this.startTime = this.audioContext.currentTime - offset;
 		this.isPlaying = true;
@@ -242,19 +237,11 @@ export class AudioEngine {
 	 * Clear loop points and disable looping
 	 */
 	clearLoop(): void {
-		const wasPlaying = this.isPlaying;
-		const currentPosition = this.getCurrentTime();
-		
 		this.loopEnabled = false;
 		this.loopStartTime = 0;
 		this.loopEndTime = 0;
 		
-		// If playing, restart playback without loop to continue normally
-		if (wasPlaying) {
-			this.pause();
-			this.pauseTime = currentPosition;
-			this.play();
-		}
+		// No need to restart playback - looping is handled in the time update loop
 	}
 	
 	/**

@@ -43,6 +43,7 @@
 	let peaksData: Float32Array | null = $state(null);
 	let audioSampleRate = $state(44100); // Will be updated from actual audio
 	let audioDuration = $state(0);
+	let lastRenderedLoopIndex = -999; // Track last rendered state to avoid unnecessary re-renders
 
 	// Derived values
 	const chunkDuration = $derived(beatGrouping * (60 / bpm));
@@ -145,6 +146,35 @@
 		}
 	});
 
+	function updateLoopButtonStyling() {
+		if (!chunksContainer) return;
+		
+		// Update all loop buttons
+		const loopButtons = chunksContainer.querySelectorAll('button[data-chunk-index]');
+		loopButtons.forEach((button) => {
+			const btnElement = button as HTMLButtonElement;
+			const chunkIndex = parseInt(btnElement.dataset.chunkIndex || '-999');
+			const isActive = loopingChunkIndex === chunkIndex;
+			
+			btnElement.className = 'absolute right-4 px-3 py-1 text-xs font-medium rounded-t-md transition-all transform ' + 
+				(isActive 
+					? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg' 
+					: 'bg-gray-700 hover:bg-gray-600 text-gray-300');
+			
+			btnElement.innerHTML = isActive 
+				? '<span class="flex items-center gap-1">🔁 Loop Active</span>' 
+				: '<span class="flex items-center gap-1">🔁 Loop</span>';
+		});
+	}
+
+	// Update loop button styling when loopingChunkIndex changes
+	$effect(() => {
+		if (!chunksContainer || lastRenderedLoopIndex === loopingChunkIndex) return;
+		
+		updateLoopButtonStyling();
+		lastRenderedLoopIndex = loopingChunkIndex;
+	});
+
 	// Update beatGrouping when beatsPerLine prop changes
 	$effect(() => {
 		beatGrouping = beatsPerLine;
@@ -157,12 +187,19 @@
 		}
 	});
 
+	// Track previous values to prevent unnecessary re-renders
+	let prevBpm = bpm;
+	let prevBeatGrouping = beatGrouping;
+	let prevBeatOffset = beatOffset;
+
 	$effect(() => {
-		// Re-render chunks when BPM, beats per line, or beat offset changes
-		bpm; // track BPM changes
-		beatGrouping; // track beatGrouping changes
-		beatOffset; // track beatOffset changes
-		if (isInitialized && peaksData) {
+		// Re-render chunks ONLY when BPM, beats per line, or beat offset changes
+		const shouldRerender = bpm !== prevBpm || beatGrouping !== prevBeatGrouping || beatOffset !== prevBeatOffset;
+		
+		if (shouldRerender && isInitialized && peaksData) {
+			prevBpm = bpm;
+			prevBeatGrouping = beatGrouping;
+			prevBeatOffset = beatOffset;
 			renderChunkedCanvases();
 		}
 	});
@@ -172,17 +209,11 @@
 		return chunkIndex * chunkDuration;
 	}
 
-	function getBeatsInChunk(chunkIndex: number): Beat[] {
-		const chunkStartTime = getChunkStartTime(chunkIndex);
-		const chunkEndTime = chunkStartTime + chunkDuration;
-		
-		return beats.filter(beat => 
-			beat.time >= chunkStartTime && beat.time < chunkEndTime
-		);
-	}
-
 	function renderChunkedCanvases() {
 		if (!peaksData || !chunksContainer || totalChunks === 0) return;
+
+		// Store current scroll position
+		const currentScrollTop = chunksContainer.scrollTop;
 
 		// Clear existing canvases
 		chunksContainer.innerHTML = '';
@@ -209,6 +240,18 @@
 		for (let chunkIndex = startChunkIndex; chunkIndex < endChunkIndex; chunkIndex++) {
 			renderChunk(chunkIndex);
 		}
+
+		// Update loop button styling after rendering
+		requestAnimationFrame(() => {
+			updateLoopButtonStyling();
+		});
+
+		// Restore scroll position
+		requestAnimationFrame(() => {
+			if (chunksContainer) {
+				chunksContainer.scrollTop = currentScrollTop;
+			}
+		});
 	}
 
 	function renderPreSongChunk() {
@@ -349,7 +392,7 @@
 		
 		const chunkLabel = document.createElement('div');
 		chunkLabel.className = 'text-xs text-gray-400';
-		chunkLabel.textContent = `Pre-song negative (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${songStartX / canvasWidth * chunkDuration}s in display)`;
+		chunkLabel.textContent = `Pre-song negative (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${(songStartX / canvasWidth * chunkDuration).toFixed(1)}s in display)`;
 		
 		headerContainer.appendChild(chunkLabel);
 		chunkContainer.appendChild(headerContainer);
@@ -454,18 +497,20 @@
 		
 		// Create loop tab button attached to top of canvas
 		const loopTab = document.createElement('button');
-		loopTab.className = 'absolute right-4 px-3 py-1 text-xs font-medium rounded-t-md transition-all transform ' + 
-			(loopingChunkIndex === chunkIndex 
-				? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg' 
-				: 'bg-gray-700 hover:bg-gray-600 text-gray-300');
+		// Don't use loopingChunkIndex here - we'll update the styling separately
+		loopTab.className = 'absolute right-4 px-3 py-1 text-xs font-medium rounded-t-md transition-all transform bg-gray-700 hover:bg-gray-600 text-gray-300';
 		loopTab.style.bottom = '100%';
 		loopTab.style.marginBottom = '-1px'; // Connect seamlessly to canvas border
 		loopTab.style.borderBottomLeftRadius = '0';
 		loopTab.style.borderBottomRightRadius = '0';
-		loopTab.innerHTML = loopingChunkIndex === chunkIndex 
-			? '<span class="flex items-center gap-1">🔁 Loop Active</span>' 
-			: '<span class="flex items-center gap-1">🔁 Loop</span>';
-		loopTab.onclick = () => handleLoopToggle(chunkIndex, chunkStartTime, chunkEndTime);
+		loopTab.dataset.chunkIndex = chunkIndex.toString(); // Add data attribute for easier finding
+		loopTab.innerHTML = '<span class="flex items-center gap-1">🔁 Loop</span>';
+		loopTab.onclick = (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			
+			handleLoopToggle(chunkIndex, chunkStartTime, chunkEndTime);
+		};
 		
 		canvasWrapper.appendChild(loopTab);
 		canvasWrapper.appendChild(canvas);
