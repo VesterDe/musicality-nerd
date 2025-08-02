@@ -31,7 +31,7 @@
 	let currentBeatIndex = -1;
 	let fileInput: HTMLInputElement;
 	let isDetectingBpm = false;
-	let loopingChunkIndex = -1;
+	let loopingChunkIndices = new Set<number>();
 
 	onMount(async () => {
 		// Initialize services
@@ -447,15 +447,183 @@
 		audioEngine.seekTo(clampedTime);
 	}
 
+	// Helper function to determine contiguous loop range based on neighbor logic
+	function getContiguousLoopRange(clickedChunk: number, existingChunks: Set<number>): Set<number> {
+		// Check if clicked chunk is already in the loop
+		if (existingChunks.has(clickedChunk)) {
+			// Remove this chunk from the loop
+			const newChunks = new Set(existingChunks);
+			newChunks.delete(clickedChunk);
+			
+			// If removing this chunk splits the loop, keep only the part containing the playhead
+			if (newChunks.size > 0) {
+				return handleLoopSplit(clickedChunk, newChunks);
+			}
+			return newChunks;
+		}
+		
+		// Check if clicked chunk neighbors any existing chunks
+		const isNeighbor = existingChunks.has(clickedChunk - 1) || existingChunks.has(clickedChunk + 1);
+		
+		if (isNeighbor && existingChunks.size > 0) {
+			// Add to existing loop
+			const newChunks = new Set(existingChunks);
+			newChunks.add(clickedChunk);
+			return newChunks;
+		} else {
+			// Start new isolated loop
+			return new Set([clickedChunk]);
+		}
+	}
+	
+	// Helper function to handle loop splitting when removing a chunk
+	function handleLoopSplit(removedChunk: number, remainingChunks: Set<number>): Set<number> {
+		if (remainingChunks.size === 0) return remainingChunks;
+		
+		// Find contiguous segments
+		const sortedChunks = Array.from(remainingChunks).sort((a, b) => a - b);
+		const segments: number[][] = [];
+		let currentSegment: number[] = [sortedChunks[0]];
+		
+		for (let i = 1; i < sortedChunks.length; i++) {
+			if (sortedChunks[i] === sortedChunks[i-1] + 1) {
+				currentSegment.push(sortedChunks[i]);
+			} else {
+				segments.push(currentSegment);
+				currentSegment = [sortedChunks[i]];
+			}
+		}
+		segments.push(currentSegment);
+		
+		// If only one segment, return it
+		if (segments.length === 1) return remainingChunks;
+		
+		// Find which segment contains the playhead
+		const currentChunkIndex = getCurrentChunkIndex();
+		for (const segment of segments) {
+			if (segment.includes(currentChunkIndex)) {
+				return new Set(segment);
+			}
+		}
+		
+		// If playhead is not in any segment (shouldn't happen), keep the first segment
+		return new Set(segments[0]);
+	}
+	
+	// Helper function to get current chunk index based on playhead position
+	function getCurrentChunkIndex(): number {
+		if (!currentSession) return 0;
+		const beatsPerChunk = currentSession.beatsPerLine;
+		const chunkDuration = beatsPerChunk * (60 / bpm);
+		const offsetInSeconds = beatOffset / 1000;
+		
+		// Adjust currentTime based on offset to find which visual chunk contains the playhead
+		if (beatOffset > 0) {
+			// Positive offset: if currentTime < (chunkDuration - offsetInSeconds), we're in chunk -1
+			if (currentTime < (chunkDuration - offsetInSeconds)) {
+				return -1;
+			} else {
+				// We're in a regular chunk, calculate which one
+				const adjustedTime = currentTime + offsetInSeconds;
+				return Math.floor(adjustedTime / chunkDuration);
+			}
+		} else if (beatOffset < 0) {
+			// Negative offset: if currentTime < Math.abs(offsetInSeconds), we're in chunk -1
+			if (currentTime < Math.abs(offsetInSeconds)) {
+				return -1;
+			} else {
+				// We're in a regular chunk
+				const adjustedTime = currentTime + Math.abs(offsetInSeconds);
+				return Math.floor(adjustedTime / chunkDuration);
+			}
+		} else {
+			// No offset: simple calculation
+			return Math.floor(currentTime / chunkDuration);
+		}
+	}
+	
+	// Helper function to calculate actual song time for a chunk index (matching SpectrogramDisplay logic)
+	function getChunkSongTimes(chunkIndex: number): { startTime: number; endTime: number } {
+		const beatsPerChunk = currentSession!.beatsPerLine;
+		const chunkDuration = beatsPerChunk * (60 / bpm);
+		const offsetInSeconds = beatOffset / 1000;
+		
+		let chunkStartTime: number;
+		let chunkEndTime: number;
+		
+		if (chunkIndex === -1) {
+			// Special chunk -1 handling
+			if (beatOffset > 0) {
+				// Positive offset: chunk -1 shows song from start
+				chunkStartTime = 0;
+				chunkEndTime = chunkDuration - offsetInSeconds;
+			} else if (beatOffset < 0) {
+				// Negative offset: chunk -1 shows small song portion  
+				chunkStartTime = 0;
+				chunkEndTime = Math.abs(offsetInSeconds);
+			} else {
+				// No offset, shouldn't have chunk -1
+				chunkStartTime = 0;
+				chunkEndTime = chunkDuration;
+			}
+		} else {
+			// Regular chunks - use same logic as SpectrogramDisplay
+			if (beatOffset > 0) {
+				// When chunk -1 exists, regular chunks are shifted by the offset
+				chunkStartTime = chunkDuration - offsetInSeconds + chunkIndex * chunkDuration;
+				chunkEndTime = chunkDuration - offsetInSeconds + (chunkIndex + 1) * chunkDuration;
+			} else if (beatOffset < 0) {
+				// When negative offset, regular chunks are shifted forward by the offset amount
+				chunkStartTime = chunkIndex * chunkDuration + Math.abs(offsetInSeconds);
+				chunkEndTime = (chunkIndex + 1) * chunkDuration + Math.abs(offsetInSeconds);
+			} else {
+				// Normal chunk boundaries when no offset
+				chunkStartTime = chunkIndex * chunkDuration;
+				chunkEndTime = (chunkIndex + 1) * chunkDuration;
+			}
+		}
+		
+		return { startTime: chunkStartTime, endTime: chunkEndTime };
+	}
+
+	// Helper function to calculate full loop range from chunk indices
+	function calculateLoopRange(chunkIndices: Set<number>): { startTime: number; endTime: number } {
+		if (chunkIndices.size === 0 || !currentSession) {
+			return { startTime: 0, endTime: 0 };
+		}
+		
+		const sortedIndices = Array.from(chunkIndices).sort((a, b) => a - b);
+		
+		// Get the actual song times for first and last chunks
+		const firstChunk = getChunkSongTimes(sortedIndices[0]);
+		const lastChunk = getChunkSongTimes(sortedIndices[sortedIndices.length - 1]);
+		
+		const startTime = firstChunk.startTime;
+		const endTime = lastChunk.endTime;
+		
+		// Ensure times are within valid bounds
+		return { 
+			startTime: Math.max(0, startTime), 
+			endTime: Math.min(endTime, duration) 
+		};
+	}
+
 	function handleChunkLoop(chunkIndex: number, startTime: number, endTime: number) {
-		if (!audioEngine) return;
+		if (!audioEngine || !currentSession) return;
 		
 		// Store scroll position before state change
 		const spectrogramContainer = document.querySelector('.overflow-y-auto');
 		const scrollTop = spectrogramContainer?.scrollTop || 0;
 		
-		audioEngine.setLoopPoints(startTime, endTime);
-		loopingChunkIndex = chunkIndex;
+		// Determine new loop set based on neighbor logic
+		const newLoopIndices = getContiguousLoopRange(chunkIndex, loopingChunkIndices);
+		
+		// Calculate the full loop range from the contiguous chunks
+		const { startTime: fullStartTime, endTime: fullEndTime } = calculateLoopRange(newLoopIndices);
+		
+		// Update audio engine and state
+		audioEngine.setLoopPoints(fullStartTime, fullEndTime);
+		loopingChunkIndices = newLoopIndices;
 		
 		// Restore scroll position after state change
 		requestAnimationFrame(() => {
@@ -464,11 +632,10 @@
 			}
 		});
 		
-		// Don't seek immediately - let it play naturally and loop when it reaches the end
 		// Only seek if we're currently outside the loop bounds
 		const currentPos = audioEngine.getCurrentTime();
-		if (currentPos < startTime || currentPos > endTime) {
-			audioEngine.seekTo(startTime);
+		if (currentPos < fullStartTime || currentPos > fullEndTime) {
+			audioEngine.seekTo(fullStartTime);
 		}
 	}
 	
@@ -480,7 +647,7 @@
 		const scrollTop = spectrogramContainer?.scrollTop || 0;
 		
 		audioEngine.clearLoop();
-		loopingChunkIndex = -1;
+		loopingChunkIndices = new Set<number>();
 		
 		// Restore scroll position after state change
 		requestAnimationFrame(() => {
@@ -516,7 +683,7 @@
 		
 		// Clear any active loops
 		audioEngine?.clearLoop();
-		loopingChunkIndex = -1;
+		loopingChunkIndices = new Set<number>();
 		
 		// Clear the current session pointer from persistence
 		// This doesn't delete the session, just removes it as the "current" one
@@ -711,7 +878,7 @@
 					beatsPerLine={currentSession.beatsPerLine}
 					onChunkLoop={handleChunkLoop}
 					onClearLoop={handleClearLoop}
-					{loopingChunkIndex}
+					{loopingChunkIndices}
 					onSeek={(time) => audioEngine.seekTo(time)}
 					onBeatsPerLineChange={updateBeatsPerLine}
 				/>

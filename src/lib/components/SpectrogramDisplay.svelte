@@ -14,7 +14,7 @@
 		beatsPerLine: number;
 		onChunkLoop?: (chunkIndex: number, startTime: number, endTime: number) => void;
 		onClearLoop?: () => void;
-		loopingChunkIndex?: number;
+		loopingChunkIndices?: Set<number>;
 		onSeek?: (time: number) => void;
 		onBeatsPerLineChange?: (value: number) => void;
 	}
@@ -30,7 +30,7 @@
 		beatsPerLine = 4,
 		onChunkLoop,
 		onClearLoop,
-		loopingChunkIndex = -1,
+		loopingChunkIndices = new Set<number>(),
 		onSeek,
 		onBeatsPerLineChange
 	}: Props = $props();
@@ -43,7 +43,7 @@
 	let peaksData: Float32Array | null = $state(null);
 	let audioSampleRate = $state(44100); // Will be updated from actual audio
 	let audioDuration = $state(0);
-	let lastRenderedLoopIndex = -999; // Track last rendered state to avoid unnecessary re-renders
+	let lastRenderedLoopIndices = $state(new Set<number>()); // Track last rendered state to avoid unnecessary re-renders
 
 	// Derived values
 	const chunkDuration = $derived(beatGrouping * (60 / bpm));
@@ -154,7 +154,7 @@
 		loopButtons.forEach((button) => {
 			const btnElement = button as HTMLButtonElement;
 			const chunkIndex = parseInt(btnElement.dataset.chunkIndex || '-999');
-			const isActive = loopingChunkIndex === chunkIndex;
+			const isActive = loopingChunkIndices.has(chunkIndex);
 			
 			btnElement.className = 'absolute right-4 px-3 py-1 text-xs font-medium rounded-t-md transition-all transform ' + 
 				(isActive 
@@ -167,12 +167,18 @@
 		});
 	}
 
-	// Update loop button styling when loopingChunkIndex changes
+	// Update loop button styling when loopingChunkIndices changes
 	$effect(() => {
-		if (!chunksContainer || lastRenderedLoopIndex === loopingChunkIndex) return;
+		if (!chunksContainer) return;
+		
+		// Check if loop indices actually changed to avoid unnecessary re-renders
+		const indicesChanged = lastRenderedLoopIndices.size !== loopingChunkIndices.size || 
+			![...loopingChunkIndices].every(idx => lastRenderedLoopIndices.has(idx));
+		
+		if (!indicesChanged) return;
 		
 		updateLoopButtonStyling();
-		lastRenderedLoopIndex = loopingChunkIndex;
+		lastRenderedLoopIndices = new Set(loopingChunkIndices);
 	});
 
 	// Update beatGrouping when beatsPerLine prop changes
@@ -205,9 +211,6 @@
 	});
 
 
-	function getChunkStartTime(chunkIndex: number): number {
-		return chunkIndex * chunkDuration;
-	}
 
 	function renderChunkedCanvases() {
 		if (!peaksData || !chunksContainer || totalChunks === 0) return;
@@ -619,13 +622,8 @@
 	}
 	
 	function handleLoopToggle(chunkIndex: number, startTime: number, endTime: number) {
-		if (loopingChunkIndex === chunkIndex) {
-			// Clear the loop
-			onClearLoop?.();
-		} else {
-			// Set new loop
-			onChunkLoop?.(chunkIndex, startTime, endTime);
-		}
+		// Always call onChunkLoop - the parent component handles the neighbor logic
+		onChunkLoop?.(chunkIndex, startTime, endTime);
 	}
 
 
