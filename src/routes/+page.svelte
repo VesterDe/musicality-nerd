@@ -5,6 +5,7 @@
 	import { BpmDetector } from '$lib/audio/BpmDetector';
 	import { PersistenceService } from '$lib/persistence/PersistenceService';
 	import SvgWaveformDisplay from '$lib/components/SvgWaveformDisplay.svelte';
+	import SongList from '$lib/components/SongList.svelte';
 	import type { TrackSession, Annotation } from '$lib/types';
 
 	// Constants
@@ -22,12 +23,10 @@
 	let duration = $state(0);
 	let bpm = $state(120);
 	let beatOffset = $state(0); // in milliseconds
-	let isDragOver = $state(false);
 	let isSessionInitializing = $state(false);
 
 	// UI state
 	let currentBeatIndex = $state(-1);
-	let fileInput: HTMLInputElement | null = $state(null);
 	let isDetectingBpm = $state(false);
 	let loopingChunkIndices = $state(new Set<number>());
 	let autoFollow = $state(false);
@@ -96,50 +95,73 @@
 			isSessionInitializing = true;
 			const lastSession = await persistenceService.loadCurrentSession();
 			if (lastSession) {
-				// Ensure backwards compatibility for annotations
-				if (!lastSession.annotations) {
-					lastSession.annotations = [];
-				}
-				
-				// Load audio first
-				await audioEngine.loadTrack(lastSession.mp3Blob);
-				duration = audioEngine.getDuration();
-				
-				// Initialize local state from session
-				let finalBpm = lastSession.bpm;
-				let finalBeatOffset = Math.round(lastSession.beatOffset);
-				
-				// Run BPM detection if not manually set
-				if (!lastSession.manualBpm) {
-					const audioBuffer = audioEngine.getAudioBuffer();
-					if (audioBuffer) {
-						try {
-							isDetectingBpm = true;
-							const detectedBpm = await bpmDetector.detectBpm(audioBuffer);
-							finalBpm = detectedBpm;
-						} catch (error) {
-							console.error('Auto BPM detection failed:', error);
-							// Keep existing BPM from session
-						} finally {
-							isDetectingBpm = false;
-						}
-					}
-				}
-				
-				// Update session with final values if BPM changed
-				if (finalBpm !== lastSession.bpm) {
-					const updatedSession = await persistenceService.updateSessionBpm(lastSession.id, finalBpm, duration, false);
-					lastSession.bpm = updatedSession.bpm;
-					lastSession.beats = updatedSession.beats;
-				}
-				
-				// Set all state at once after everything is ready
-				bpm = finalBpm;
-				beatOffset = finalBeatOffset;
-				currentSession = lastSession;
+				await loadSessionData(lastSession);
 			}
 		} catch (error) {
 			console.error('Failed to load last session:', error);
+		} finally {
+			isSessionInitializing = false;
+		}
+	}
+
+	async function loadSessionData(session: TrackSession): Promise<void> {
+		// Ensure backwards compatibility for annotations
+		if (!session.annotations) {
+			session.annotations = [];
+		}
+		
+		// Load audio first
+		await audioEngine.loadTrack(session.mp3Blob);
+		duration = audioEngine.getDuration();
+		
+		// Initialize local state from session
+		let finalBpm = session.bpm;
+		let finalBeatOffset = Math.round(session.beatOffset);
+		
+		// Run BPM detection if not manually set
+		if (!session.manualBpm) {
+			const audioBuffer = audioEngine.getAudioBuffer();
+			if (audioBuffer) {
+				try {
+					isDetectingBpm = true;
+					const detectedBpm = await bpmDetector.detectBpm(audioBuffer);
+					finalBpm = detectedBpm;
+				} catch (error) {
+					console.error('Auto BPM detection failed:', error);
+					// Keep existing BPM from session
+				} finally {
+					isDetectingBpm = false;
+				}
+			}
+		}
+		
+		// Update session with final values if BPM changed
+		if (finalBpm !== session.bpm) {
+			const updatedSession = await persistenceService.updateSessionBpm(session.id, finalBpm, duration, false);
+			session.bpm = updatedSession.bpm;
+			session.beats = updatedSession.beats;
+		}
+		
+		// Set all state at once after everything is ready
+		bpm = finalBpm;
+		beatOffset = finalBeatOffset;
+		currentSession = session;
+	}
+
+	async function handleSongSelected(sessionId: string) {
+		try {
+			isSessionInitializing = true;
+			
+			// Set as current session and load it
+			await persistenceService.setCurrentSession(sessionId);
+			const session = await persistenceService.loadSession(sessionId);
+			
+			if (session) {
+				await loadSessionData(session);
+			}
+		} catch (error) {
+			console.error('Failed to load selected song:', error);
+			alert('Failed to load song. Please try again.');
 		} finally {
 			isSessionInitializing = false;
 		}
@@ -370,25 +392,6 @@
 		}
 	}
 
-	// Drag and drop handlers
-	function handleDragOver(event: DragEvent) {
-		event.preventDefault();
-		isDragOver = true;
-	}
-
-	function handleDragLeave(event: DragEvent) {
-		event.preventDefault();
-		isDragOver = false;
-	}
-
-	function handleDrop(event: DragEvent) {
-		event.preventDefault();
-		isDragOver = false;
-		
-		if (event.dataTransfer?.files) {
-			handleFilesDrop(event.dataTransfer.files);
-		}
-	}
 
 	function formatTime(seconds: number): string {
 		const mins = Math.floor(seconds / 60);
@@ -449,9 +452,6 @@
 		}
 	}
 
-	function handleDropZoneClick() {
-		fileInput?.click();
-	}
 	
 	function handleProgressClick(event: MouseEvent) {
 		if (!audioEngine || duration <= 0) return;
@@ -720,7 +720,7 @@
 		}
 	}
 
-	async function clearCurrentSong() {
+	async function returnToSongList() {
 		if (!currentSession) return;
 		
 		// Stop playback if playing
@@ -794,9 +794,9 @@
 			{#if currentSession}
 				<button
 					class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm transition-colors"
-					onclick={clearCurrentSong}
+					onclick={returnToSongList}
 				>
-					🔄 New Song
+					← Song List
 				</button>
 			{/if}
 		</div>
@@ -806,39 +806,11 @@
 	<div class="max-w-7xl mx-auto p-4 space-y-6">
 		
 		{#if !currentSession}
-			<!-- Drop Zone -->
-			<div 
-				class="border-2 border-dashed border-gray-600 rounded-lg p-12 text-center transition-colors
-					{isDragOver ? 'border-blue-400 bg-blue-400/10' : 'hover:border-gray-500'}"
-				role="button"
-				tabindex="0"
-				aria-label="Drop MP3 file here or click to browse"
-				ondragover={handleDragOver}
-				ondragleave={handleDragLeave}
-				ondrop={handleDrop}
-				onclick={handleDropZoneClick}
-				onkeydown={(e) => e.key === 'Enter' && handleDropZoneClick()}
-			>
-				<div class="space-y-4">
-					<div class="text-4xl">🎵</div>
-					<h2 class="text-xl font-semibold">Drop your MP3 file here</h2>
-					<p class="text-gray-400">
-						Or click to browse files
-					</p>
-					<input 
-						type="file" 
-						accept="audio/*"
-						class="hidden"
-						bind:this={fileInput}
-						onchange={(e) => {
-							const target = e.target as HTMLInputElement;
-							if (target.files) {
-								handleFilesDrop(target.files);
-							}
-						}}
-					/>
-				</div>
-			</div>
+			<!-- Song List -->
+			<SongList 
+				onSongSelected={handleSongSelected}
+				onFilesDrop={handleFilesDrop}
+			/>
 		{:else}
 			<!-- Track Info -->
 			<div class="bg-gray-800 rounded-lg p-4">

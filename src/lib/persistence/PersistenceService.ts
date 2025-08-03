@@ -49,6 +49,23 @@ export class PersistenceService {
 	}
 
 	/**
+	 * Set a session as the current active session
+	 */
+	async setCurrentSession(sessionId: string): Promise<void> {
+		try {
+			// Verify the session exists
+			const session = await this.loadSession(sessionId);
+			if (!session) {
+				throw new Error('Session not found');
+			}
+			
+			await set(CURRENT_SESSION_KEY, sessionId);
+		} catch (error) {
+			throw new Error(`Failed to set current session: ${error}`);
+		}
+	}
+
+	/**
 	 * Create a new track session from MP3 file
 	 */
 	async createSession(file: File): Promise<TrackSession> {
