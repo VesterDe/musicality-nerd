@@ -306,6 +306,48 @@
 		};
 	});
 
+	// Calculate which beat lines are currently being crossed by the playhead
+	const activeBeatLines = $derived.by(() => {
+		if (!isInitialized || audioDuration <= 0) return new Set<string>();
+
+		const offsetInSeconds = beatOffset / 1000;
+		const beatDuration = 60 / bpm;
+		const flashDuration = 0.1; // 50ms flash duration
+		
+		const activeLines = new Set<string>();
+		
+		// Beat lines represent beats in "grid time" which is currentTime + offset
+		// When offset is negative, the grid is shifted earlier relative to the song
+		const gridTime = currentTime + offsetInSeconds;
+		
+		for (let chunkIndex = beatOffset !== 0 ? -1 : 0; chunkIndex < totalChunks; chunkIndex++) {
+			if (chunkIndex === -1 && beatOffset === 0) continue;
+			
+			// Calculate when this chunk starts in grid time
+			let chunkStartGridTime: number;
+			if (chunkIndex === -1) {
+				chunkStartGridTime = beatOffset < 0 ? -chunkDuration : 0;
+			} else {
+				chunkStartGridTime = chunkIndex * chunkDuration;
+			}
+			
+			// Check each beat line in this chunk
+			for (let beatIndex = 1; beatIndex < beatGrouping; beatIndex++) {
+				// Calculate when this beat line occurs in grid time
+				const beatLineGridTime = chunkStartGridTime + (beatIndex * beatDuration);
+				
+				// Check if current grid time is within 50ms of this beat line
+				const timeDiff = Math.abs(gridTime - beatLineGridTime);
+				
+				if (timeDiff <= flashDuration / 2) {
+					activeLines.add(`${chunkIndex}-${beatIndex - 1}`);
+				}
+			}
+		}
+		
+		return activeLines;
+	});
+
 
 	// Notify parent when annotation modal state changes
 	$effect(() => {
@@ -644,14 +686,20 @@
 							>Song Start</text>
 						{:else}
 							<!-- Beat Grid Lines -->
-							{#each chunk.beatLines as line}
+							{#each chunk.beatLines as line, beatIndex}
+								{@const lineKey = `${chunk.index}-${beatIndex}`}
+								{@const isActiveBeat = activeBeatLines.has(lineKey)}
 								<line
 									x1={line.x}
 									y1="0"
 									x2={line.x}
 									y2={waveformConfig.height}
-																stroke={line.type === 'quarter' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.3)'}
-							stroke-width={line.type === 'quarter' ? '1.5' : '1'}
+									stroke={isActiveBeat 
+										? '#3b82f6' 
+										: line.type === 'quarter' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.3)'}
+									stroke-width={isActiveBeat ? '3' : line.type === 'quarter' ? '1.5' : '1'}
+									class={isActiveBeat ? 'beat-active' : ''}
+									style={isActiveBeat ? 'filter: drop-shadow(0 0 4px #3b82f6);' : ''}
 								/>
 							{/each}
 
@@ -740,5 +788,27 @@
 	/* Custom styles for the SVG waveform */
 	:global(svg) {
 		user-select: none;
+	}
+
+	/* Beat marker active state with smooth transitions */
+	:global(.beat-active) {
+		transition: stroke 0.05s ease-out, stroke-width 0.05s ease-out, filter 0.05s ease-out;
+		animation: beatFlash 0.1s ease-out;
+	}
+
+	/* Quick flash animation for beat markers as playhead crosses them */
+	@keyframes beatFlash {
+		0% {
+			opacity: 1;
+			stroke-width: 3;
+		}
+		50% {
+			opacity: 0.8;
+			stroke-width: 4;
+		}
+		100% {
+			opacity: 1;
+			stroke-width: 3;
+		}
 	}
 </style>
