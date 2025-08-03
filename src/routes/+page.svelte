@@ -512,67 +512,20 @@
 		currentTime = audioEngine.getCurrentTime();
 	}
 
-	// Helper function to determine contiguous loop range based on neighbor logic
-	function getContiguousLoopRange(clickedChunk: number, existingChunks: Set<number>): Set<number> {
+	// Helper function to manage loop chunks - allows any pieces to be looped
+	function getUpdatedLoopRange(clickedChunk: number, existingChunks: Set<number>): Set<number> {
 		// Check if clicked chunk is already in the loop
 		if (existingChunks.has(clickedChunk)) {
-			// Remove this chunk from the loop
+			// Remove only this chunk from the loop
 			const newChunks = new Set(existingChunks);
 			newChunks.delete(clickedChunk);
-			
-			// If removing this chunk splits the loop, keep only the part containing the playhead
-			if (newChunks.size > 0) {
-				return handleLoopSplit(clickedChunk, newChunks);
-			}
 			return newChunks;
-		}
-		
-		// Check if clicked chunk neighbors any existing chunks
-		const isNeighbor = existingChunks.has(clickedChunk - 1) || existingChunks.has(clickedChunk + 1);
-		
-		if (isNeighbor && existingChunks.size > 0) {
-			// Add to existing loop
+		} else {
+			// Add this chunk to the existing loop (regardless of adjacency)
 			const newChunks = new Set(existingChunks);
 			newChunks.add(clickedChunk);
 			return newChunks;
-		} else {
-			// Start new isolated loop
-			return new Set([clickedChunk]);
 		}
-	}
-	
-	// Helper function to handle loop splitting when removing a chunk
-	function handleLoopSplit(removedChunk: number, remainingChunks: Set<number>): Set<number> {
-		if (remainingChunks.size === 0) return remainingChunks;
-		
-		// Find contiguous segments
-		const sortedChunks = Array.from(remainingChunks).sort((a, b) => a - b);
-		const segments: number[][] = [];
-		let currentSegment: number[] = [sortedChunks[0]];
-		
-		for (let i = 1; i < sortedChunks.length; i++) {
-			if (sortedChunks[i] === sortedChunks[i-1] + 1) {
-				currentSegment.push(sortedChunks[i]);
-			} else {
-				segments.push(currentSegment);
-				currentSegment = [sortedChunks[i]];
-			}
-		}
-		segments.push(currentSegment);
-		
-		// If only one segment, return it
-		if (segments.length === 1) return remainingChunks;
-		
-		// Find which segment contains the playhead
-		const currentChunkIndex = getCurrentChunkIndex();
-		for (const segment of segments) {
-			if (segment.includes(currentChunkIndex)) {
-				return new Set(segment);
-			}
-		}
-		
-		// If playhead is not in any segment (shouldn't happen), keep the first segment
-		return new Set(segments[0]);
 	}
 	
 	// Helper function to get current chunk index based on playhead position
@@ -651,26 +604,22 @@
 		return { startTime: chunkStartTime, endTime: chunkEndTime };
 	}
 
-	// Helper function to calculate full loop range from chunk indices
-	function calculateLoopRange(chunkIndices: Set<number>): { startTime: number; endTime: number } {
+	// Helper function to calculate loop segments from chunk indices (supports non-contiguous chunks)
+	function calculateLoopSegments(chunkIndices: Set<number>): Array<{ start: number; end: number }> {
 		if (chunkIndices.size === 0 || !currentSession) {
-			return { startTime: 0, endTime: 0 };
+			return [];
 		}
 		
 		const sortedIndices = Array.from(chunkIndices).sort((a, b) => a - b);
 		
-		// Get the actual song times for first and last chunks
-		const firstChunk = getChunkSongTimes(sortedIndices[0]);
-		const lastChunk = getChunkSongTimes(sortedIndices[sortedIndices.length - 1]);
-		
-		const startTime = firstChunk.startTime;
-		const endTime = lastChunk.endTime;
-		
-		// Ensure times are within valid bounds
-		return { 
-			startTime: Math.max(0, startTime), 
-			endTime: Math.min(endTime, duration) 
-		};
+		// Create individual segments for each selected chunk
+		return sortedIndices.map(chunkIndex => {
+			const { startTime, endTime } = getChunkSongTimes(chunkIndex);
+			return {
+				start: Math.max(0, startTime),
+				end: Math.min(endTime, duration)
+			};
+		});
 	}
 
 	function handleChunkLoop(chunkIndex: number, startTime: number, endTime: number) {
@@ -680,14 +629,19 @@
 		const spectrogramContainer = document.querySelector('.overflow-y-auto');
 		const scrollTop = spectrogramContainer?.scrollTop || 0;
 		
-		// Determine new loop set based on neighbor logic
-		const newLoopIndices = getContiguousLoopRange(chunkIndex, loopingChunkIndices);
+		// Update loop set - allows any chunks to be looped, individual deselection
+		const newLoopIndices = getUpdatedLoopRange(chunkIndex, loopingChunkIndices);
 		
-		// Calculate the full loop range from the contiguous chunks
-		const { startTime: fullStartTime, endTime: fullEndTime } = calculateLoopRange(newLoopIndices);
+		// Calculate loop segments from all selected chunks
+		const loopSegments = calculateLoopSegments(newLoopIndices);
 		
 		// Update audio engine and state
-		audioEngine.setLoopPoints(fullStartTime, fullEndTime);
+		if (loopSegments.length > 0) {
+			audioEngine.setLoopSegments(loopSegments);
+		} else {
+			// No segments remaining, clear the loop
+			audioEngine.clearLoop();
+		}
 		loopingChunkIndices = newLoopIndices;
 		
 		// Restore scroll position after state change
@@ -697,10 +651,13 @@
 			}
 		});
 		
-		// Only seek if we're currently outside the loop bounds
-		const currentPos = audioEngine.getCurrentTime();
-		if (currentPos < fullStartTime || currentPos > fullEndTime) {
-			audioEngine.seekTo(fullStartTime);
+		// Only seek if we have segments and we're not currently in any of them
+		if (loopSegments.length > 0) {
+			const currentPos = audioEngine.getCurrentTime();
+			const isInAnySegment = loopSegments.some(seg => currentPos >= seg.start && currentPos <= seg.end);
+			if (!isInAnySegment) {
+				audioEngine.seekTo(loopSegments[0].start);
+			}
 		}
 	}
 	
@@ -966,6 +923,7 @@
 					onAnnotationUpdated={handleAnnotationUpdated}
 					onAnnotationDeleted={handleAnnotationDeleted}
 					onAnnotationModalStateChange={handleAnnotationModalStateChange}
+					filename={currentSession.filename.replace(/\.[^/.]+$/, "")}
 				/>
 			{:else if isSessionInitializing}
 				<!-- Loading state for waveform -->

@@ -3,6 +3,7 @@
 	import HtmlAnnotation from './HtmlAnnotation.svelte';
 	import type { Annotation } from '../types';
 	import type { AudioEngine } from '../audio/AudioEngine';
+	import { AudioExportService } from '../audio/AudioExportService';
 	import {
 		calculateChunkBounds,
 		generateWaveformBars,
@@ -28,6 +29,7 @@
 		onAnnotationUpdated?: (id: string, updates: Partial<Annotation>) => void;
 		onAnnotationDeleted?: (id: string) => void;
 		onAnnotationModalStateChange?: (isOpen: boolean) => void;
+		filename?: string;
 	}
 
 	let { 
@@ -46,6 +48,7 @@
 		onAnnotationUpdated,
 		onAnnotationDeleted,
 		onAnnotationModalStateChange,
+		filename = 'audio',
 	}: Props = $props();
 
 	// Component state
@@ -55,6 +58,10 @@
 	let peaksData: Float32Array | null = $state(null);
 	let audioSampleRate = $state(44100);
 	let audioDuration = $state(0);
+
+	// Export service
+	let exportService = $state(new AudioExportService());
+	let exportingChunks = $state(new Set<number>()); // Track which chunks are being exported
 
 	// Annotation creation state
 	let showAnnotationPopup = $state(false);
@@ -498,11 +505,8 @@
 
 	function toggleChunkLoop(chunkIndex: number, startTime: number, endTime: number) {
 		console.log('Toggle chunk loop:', { chunkIndex, startTime, endTime, chunkDuration });
-		if (loopingChunkIndices.has(chunkIndex)) {
-			onClearLoop?.();
-		} else {
-			onChunkLoop?.(chunkIndex, startTime, endTime);
-		}
+		// Always call onChunkLoop for individual chunk toggling - it handles both add and remove
+		onChunkLoop?.(chunkIndex, startTime, endTime);
 	}
 
 
@@ -554,6 +558,93 @@
 			endTimeMs: newEndTimeMs 
 		});
 	}
+
+	async function handleChunkExport(chunkIndex: number, startTime: number, endTime: number) {
+		const audioBuffer = audioEngine.getAudioBuffer();
+		if (!audioBuffer) {
+			alert('No audio data available for export');
+			return;
+		}
+
+		try {
+			exportingChunks.add(chunkIndex);
+			
+			// Generate meaningful filename
+			const chunkName = chunkIndex === -1 ? 'pre-song' : `chunk_${chunkIndex}`;
+			const exportFilename = `${filename}_${chunkName}.wav`;
+			
+			await exportService.exportChunk(audioBuffer, startTime, endTime, exportFilename);
+		} catch (error) {
+			console.error('Failed to export chunk:', error);
+			alert('Failed to export chunk. Please try again.');
+		} finally {
+			exportingChunks.delete(chunkIndex);
+		}
+	}
+
+	async function handleGroupExport() {
+		const audioBuffer = audioEngine.getAudioBuffer();
+		if (!audioBuffer || loopingChunkIndices.size === 0) {
+			alert('No audio data or looping chunks available for export');
+			return;
+		}
+
+		try {
+			// Convert looping chunk indices to chunk data with timing
+			const chunks = Array.from(loopingChunkIndices).map(chunkIndex => {
+				const beatsPerChunk = beatGrouping;
+				const chunkDuration = beatsPerChunk * (60 / bpm);
+				const offsetInSeconds = beatOffset / 1000;
+				
+				let chunkStartTime: number;
+				let chunkEndTime: number;
+				
+				if (chunkIndex === -1) {
+					// Special chunk -1 handling
+					if (beatOffset > 0) {
+						chunkStartTime = 0;
+						chunkEndTime = chunkDuration - offsetInSeconds;
+					} else if (beatOffset < 0) {
+						chunkStartTime = 0;
+						chunkEndTime = Math.abs(offsetInSeconds);
+					} else {
+						chunkStartTime = 0;
+						chunkEndTime = chunkDuration;
+					}
+				} else {
+					// Regular chunks - use same logic as in main page
+					if (beatOffset > 0) {
+						chunkStartTime = chunkDuration - offsetInSeconds + chunkIndex * chunkDuration;
+						chunkEndTime = chunkDuration - offsetInSeconds + (chunkIndex + 1) * chunkDuration;
+					} else if (beatOffset < 0) {
+						chunkStartTime = chunkIndex * chunkDuration + Math.abs(offsetInSeconds);
+						chunkEndTime = (chunkIndex + 1) * chunkDuration + Math.abs(offsetInSeconds);
+					} else {
+						chunkStartTime = chunkIndex * chunkDuration;
+						chunkEndTime = (chunkIndex + 1) * chunkDuration;
+					}
+				}
+				
+				return {
+					startTime: Math.max(0, chunkStartTime),
+					endTime: Math.min(chunkEndTime, audioDuration),
+					index: chunkIndex
+				};
+			});
+			
+			// Generate filename for chunk range
+			const sortedIndices = Array.from(loopingChunkIndices).sort((a, b) => a - b);
+			const rangeStr = sortedIndices.length === 1 
+				? `chunk_${sortedIndices[0] === -1 ? 'pre-song' : sortedIndices[0]}`
+				: `chunks_${sortedIndices[0] === -1 ? 'pre-song' : sortedIndices[0]}-${sortedIndices[sortedIndices.length - 1]}`;
+			const exportFilename = `${filename}_${rangeStr}.wav`;
+			
+			await exportService.exportChunkGroup(audioBuffer, chunks, exportFilename);
+		} catch (error) {
+			console.error('Failed to export chunk group:', error);
+			alert('Failed to export chunk group. Please try again.');
+		}
+	}
 </script>
 
 <div class="flex flex-col space-y-4">
@@ -604,12 +695,30 @@
 					<!-- Chunk Header -->
 					<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between">
 						<div>{chunk.headerInfo}</div>
-						<button
-							class="px-2 py-1 rounded text-xs transition-colors {chunk.isLooping ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}"
-							onclick={() => toggleChunkLoop(chunk.index, chunk.startTime, chunk.endTime)}
-						>
-							{chunk.isLooping ? 'Stop Loop' : 'Loop'}
-						</button>
+						<div class="flex items-center space-x-2">
+							<!-- Show group download button only on the first looping chunk -->
+							{#if loopingChunkIndices.size > 1 && chunk.isLooping && Array.from(loopingChunkIndices).sort((a, b) => a - b)[0] === chunk.index}
+								<button
+									class="px-2 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded text-xs transition-colors"
+									onclick={handleGroupExport}
+								>
+									📦 Download Group ({loopingChunkIndices.size})
+								</button>
+							{/if}
+							<button
+								class="px-2 py-1 rounded text-xs transition-colors {exportingChunks.has(chunk.index) ? 'bg-gray-600 text-gray-400' : 'bg-green-600 hover:bg-green-700 text-white'}"
+								onclick={() => handleChunkExport(chunk.index, chunk.startTime, chunk.endTime)}
+								disabled={exportingChunks.has(chunk.index)}
+							>
+								{exportingChunks.has(chunk.index) ? '⏳ Exporting...' : '📥 Download'}
+							</button>
+							<button
+								class="px-2 py-1 rounded text-xs transition-colors {chunk.isLooping ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}"
+								onclick={() => toggleChunkLoop(chunk.index, chunk.startTime, chunk.endTime)}
+							>
+								{chunk.isLooping ? 'Stop Loop' : 'Loop'}
+							</button>
+						</div>
 					</div>
 
 					<!-- SVG Waveform -->
