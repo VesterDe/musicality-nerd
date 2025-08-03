@@ -959,8 +959,8 @@
 				<h3 class="text-sm font-semibold text-gray-300 mb-2">Keyboard Shortcuts</h3>
 				<div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-400">
 					<div><kbd class="bg-gray-700 px-1 rounded">Space</kbd> Play/Pause</div>
-					<div><kbd class="bg-gray-700 px-1 rounded">←</kbd> Previous 8-beat boundary</div>
-					<div><kbd class="bg-gray-700 px-1 rounded">→</kbd> Next 8-beat boundary</div>
+					<div><kbd class="bg-gray-700 px-1 rounded">←</kbd> Jump back 8 beats</div>
+					<div><kbd class="bg-gray-700 px-1 rounded">→</kbd> Jump forward 8 beats</div>
 				</div>
 			</div>
 		{/if}
