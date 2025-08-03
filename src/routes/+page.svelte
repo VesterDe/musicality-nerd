@@ -957,8 +957,6 @@
 			<!-- Spectrogram Display -->
 			{#if currentSession && !isSessionInitializing}
 				<SvgWaveformDisplay
-					beats={currentSession.beats}
-					{currentBeatIndex}
 					{currentTime}
 					{bpm}
 					{audioEngine}

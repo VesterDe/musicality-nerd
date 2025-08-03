@@ -1,7 +1,7 @@
 <script lang="ts">
 	import AnnotationPopup from './AnnotationPopup.svelte';
 	import HtmlAnnotation from './HtmlAnnotation.svelte';
-	import type { Annotation, Beat } from '../types';
+	import type { Annotation } from '../types';
 	import type { AudioEngine } from '../audio/AudioEngine';
 	import {
 		calculateChunkBounds,
@@ -13,8 +13,6 @@
 	} from '../utils/svgWaveform';
 
 	interface Props {
-		beats: Beat[];
-		currentBeatIndex: number;
 		currentTime: number;
 		bpm: number;
 		audioEngine: AudioEngine;
@@ -33,14 +31,11 @@
 	}
 
 	let { 
-		beats = [], 
- 
-		currentBeatIndex = -1, 
 		currentTime = 0, 
 		bpm = 120,
 		audioEngine,
 		beatOffset = 0,
-		beatsPerLine = 4,
+		beatsPerLine = 16,
 		onChunkLoop,
 		onClearLoop,
 		loopingChunkIndices = new Set<number>(),
