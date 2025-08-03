@@ -32,6 +32,7 @@
 	let autoFollow = $state(false);
 	let isAnnotationModalOpen = $state(false);
 	let offsetUpdateTimeout: number | null = $state(null);
+	let isDraggingProgress = $state(false);
 	
 
 	onMount(async () => {
@@ -42,7 +43,10 @@
 
 		// Setup audio engine event handlers
 		audioEngine.onTimeUpdate = (time) => {
-			currentTime = time;
+			// Only update currentTime if user is not dragging the progress slider
+			if (!isDraggingProgress) {
+				currentTime = time;
+			}
 			updateCurrentBeat();
 			// Keep UI state in sync with audio engine state
 			isPlaying = audioEngine.playing;
@@ -479,7 +483,7 @@
 		}
 	}
 
-	function handleProgressChange(event: Event) {
+	async function handleProgressChange(event: Event) {
 		// Final seeking when drag/click completes
 		if (!audioEngine || duration <= 0) return;
 		
@@ -496,7 +500,16 @@
 		}
 		
 		const clampedTime = Math.max(0, Math.min(duration, seekTime));
-		audioEngine.seekTo(clampedTime);
+		
+		// Reset drag state BEFORE seeking to ensure time updates can resume
+		isDraggingProgress = false;
+		
+		// Await the seek operation and immediately sync state
+		await audioEngine.seekTo(clampedTime);
+		
+		// Force immediate state synchronization
+		isPlaying = audioEngine.playing;
+		currentTime = audioEngine.getCurrentTime();
 	}
 
 	// Helper function to determine contiguous loop range based on neighbor logic
@@ -751,7 +764,10 @@
 		
 		// Re-setup audio engine event handlers
 		audioEngine.onTimeUpdate = (time) => {
-			currentTime = time;
+			// Only update currentTime if user is not dragging the progress slider
+			if (!isDraggingProgress) {
+				currentTime = time;
+			}
 			updateCurrentBeat();
 			// Keep UI state in sync with audio engine state
 			isPlaying = audioEngine.playing;
@@ -892,6 +908,10 @@
 							value={currentTime}
 							oninput={handleProgressInput}
 							onchange={handleProgressChange}
+							onmousedown={() => isDraggingProgress = true}
+							onmouseup={() => isDraggingProgress = false}
+							ontouchstart={() => isDraggingProgress = true}
+							ontouchend={() => isDraggingProgress = false}
 							min="0"
 							max={duration}
 							step="0.1"

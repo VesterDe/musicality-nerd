@@ -9,6 +9,7 @@ export class AudioEngine {
 	private startTime = 0;
 	private pauseTime = 0;
 	private isPlaying = false;
+	private updateLoopRunning = false;
 	
 	// Loop functionality
 	private loopEnabled = false;
@@ -74,6 +75,15 @@ export class AudioEngine {
 
 		if (this.isPlaying) return;
 
+		// Clean up any existing source node
+		if (this.sourceNode) {
+			try {
+				this.sourceNode.disconnect();
+			} catch (e) {
+				// Ignore errors if already disconnected
+			}
+		}
+
 		// Create new source node (they can only be used once)
 		this.sourceNode = this.audioContext.createBufferSource();
 		this.sourceNode.buffer = this.audioBuffer;
@@ -94,16 +104,25 @@ export class AudioEngine {
 		// Start playback from current position
 		let offset = Number.isNaN(this.pauseTime) ? 0 : this.pauseTime;
 		
+		// Ensure offset is within valid bounds
+		offset = Math.max(0, Math.min(offset, this.getDuration()));
+		
 		if (this.loopEnabled) {
 			// Ensure we're within loop bounds
 			offset = Math.max(this.loopStartTime, Math.min(this.loopEndTime, offset));
 		}
 		
-		// Always start without duration limit - we'll handle looping manually in the time update loop
-		this.sourceNode.start(0, offset);
-		
-		this.startTime = this.audioContext.currentTime - offset;
-		this.isPlaying = true;
+		try {
+			// Always start without duration limit - we'll handle looping manually in the time update loop
+			this.sourceNode.start(0, offset);
+			
+			this.startTime = this.audioContext.currentTime - offset;
+			this.isPlaying = true;
+		} catch (error) {
+			console.error('Failed to start audio source:', error);
+			this.isPlaying = false;
+			throw error;
+		}
 
 		// Start time update loop
 		this.startTimeUpdateLoop();
@@ -115,9 +134,19 @@ export class AudioEngine {
 	pause(): void {
 		if (!this.isPlaying || !this.sourceNode) return;
 
-		this.sourceNode.stop();
-		this.pauseTime = this.getCurrentTime();
+		// Calculate pause time BEFORE stopping to get accurate time
+		const currentPlaybackTime = this.getCurrentTime();
+		
+		try {
+			this.sourceNode.stop();
+			this.sourceNode.disconnect();
+		} catch (e) {
+			// Ignore errors if already stopped/disconnected
+		}
+		
+		this.pauseTime = currentPlaybackTime;
 		this.isPlaying = false;
+		this.updateLoopRunning = false;
 	}
 
 	/**
@@ -125,11 +154,17 @@ export class AudioEngine {
 	 */
 	stop(): void {
 		if (this.sourceNode) {
-			this.sourceNode.stop();
+			try {
+				this.sourceNode.stop();
+				this.sourceNode.disconnect();
+			} catch (e) {
+				// Ignore errors if already stopped/disconnected
+			}
 		}
 		this.isPlaying = false;
 		this.pauseTime = 0;
 		this.startTime = 0;
+		this.updateLoopRunning = false;
 	}
 
 	/**
@@ -137,14 +172,21 @@ export class AudioEngine {
 	 */
 	async seekTo(time: number): Promise<void> {
 		const wasPlaying = this.isPlaying;
+		const clampedTime = Math.max(0, Math.min(time, this.getDuration()));
+		
+		// Stop update loop immediately to prevent conflicts
+		this.updateLoopRunning = false;
 		
 		if (this.isPlaying) {
 			this.pause();
 		}
 
-		this.pauseTime = Math.max(0, Math.min(time, this.getDuration()));
+		// Set the new pause time
+		this.pauseTime = clampedTime;
 
 		if (wasPlaying) {
+			// Small delay to ensure clean state transition
+			await new Promise(resolve => setTimeout(resolve, 5));
 			await this.play();
 		}
 	}
@@ -156,9 +198,12 @@ export class AudioEngine {
 		if (!this.audioContext) return 0;
 
 		if (this.isPlaying) {
-			return this.audioContext.currentTime - this.startTime;
+			const currentTime = this.audioContext.currentTime - this.startTime;
+			// Ensure time is within valid bounds
+			return Math.max(0, Math.min(currentTime, this.getDuration()));
 		} else {
-			return this.pauseTime;
+			// Ensure pause time is within valid bounds
+			return Math.max(0, Math.min(this.pauseTime, this.getDuration()));
 		}
 	}
 
@@ -263,8 +308,15 @@ export class AudioEngine {
 	 * Start the time update loop
 	 */
 	private startTimeUpdateLoop(): void {
+		// Prevent multiple concurrent update loops
+		if (this.updateLoopRunning) {
+			return;
+		}
+		
+		this.updateLoopRunning = true;
+		
 		const updateTime = () => {
-			if (this.isPlaying) {
+			if (this.isPlaying && this.updateLoopRunning) {
 				const currentTime = this.getCurrentTime();
 				
 				// Check if we need to loop
@@ -278,6 +330,9 @@ export class AudioEngine {
 				
 				this.onTimeUpdate?.(currentTime);
 				requestAnimationFrame(updateTime);
+			} else {
+				// Stop the update loop when not playing
+				this.updateLoopRunning = false;
 			}
 		};
 		requestAnimationFrame(updateTime);
@@ -288,8 +343,23 @@ export class AudioEngine {
 	 */
 	dispose(): void {
 		this.stop();
+		this.updateLoopRunning = false;
+		
+		if (this.sourceNode) {
+			try {
+				this.sourceNode.disconnect();
+			} catch (e) {
+				// Ignore errors if already disconnected
+			}
+			this.sourceNode = null;
+		}
+		
 		if (this.audioContext && this.audioContext.state !== 'closed') {
-			this.audioContext.close();
+			try {
+				this.audioContext.close();
+			} catch (e) {
+				console.warn('Error closing audio context:', e);
+			}
 		}
 		this.audioContext = null;
 		this.audioBuffer = null;
