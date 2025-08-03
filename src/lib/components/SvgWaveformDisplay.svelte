@@ -156,7 +156,8 @@
 				
 				const startTime = bounds.startTimeMs / 1000;
 				const endTime = bounds.endTimeMs / 1000;
-				headerInfo = `Chunk ${chunkIndex} (${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s)`;
+        const startingBeat = chunkIndex * beatGrouping + 1;
+				headerInfo = `Chunk ${chunkIndex + 1} (${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s) Beats ${startingBeat} - ${startingBeat + beatGrouping - 1}`;
 			}
 
 			chunks.push({
