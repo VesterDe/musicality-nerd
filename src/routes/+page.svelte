@@ -819,7 +819,7 @@
 				<!-- BPM Controls -->
 				<div class="flex items-center justify-between space-x-3 mb-3">
 					<div>
-            <label class="text-sm text-gray-300">BPM:</label>
+            <label class="text-sm text-gray-300" for="bpm">BPM:</label>
             <input 
               type="number" 
               bind:value={bpm}
@@ -844,12 +844,12 @@
 
 				<!-- Beat Offset Slider -->
 				<div class="space-y-2">
-					<label class="text-sm text-gray-300 flex items-center justify-between">
-						<span>Beat Offset:</span>
+					<div class="text-sm text-gray-300 flex items-center justify-between">
+						<span>Beat Offset (max ±half a beat):</span>
 						<span class="text-xs text-gray-400">
 							{Math.round(beatOffset) > 0 ? '+' : ''}{Math.round(beatOffset)}ms
 						</span>
-					</label>
+					</div>
 					<div class="relative">
 						<input 
 							type="range" 
