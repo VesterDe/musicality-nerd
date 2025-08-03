@@ -8,6 +8,7 @@
 		chunkWidth: number;
 		chunkHeight: number;
 		chunkIndex: number;
+		stackPosition?: number;
 		onEdit?: (annotation: Annotation) => void;
 		onDelete?: (annotationId: string) => void;
 		onMove?: (annotationId: string, newStartTimeMs: number, newEndTimeMs: number) => void;
@@ -20,6 +21,7 @@
 		chunkWidth,
 		chunkHeight,
 		chunkIndex,
+		stackPosition = 0,
 		onEdit,
 		onDelete,
 		onMove,
@@ -81,7 +83,7 @@
 	
 	const width = $derived(isPointAnnotation ? 12 : Math.max(20, endX() - startX())); // Minimum width for duration annotations
 	
-	const annotationY = $derived(chunkHeight - 60); // Position above beat markers
+	const annotationY = $derived(chunkHeight - 60 - (stackPosition * 25)); // Stack from bottom up, 25px apart
 
 	// Visibility is already handled by parent component, so we always render
 
@@ -184,7 +186,7 @@
 		style:left="{startX()}px"
 		style:top="{annotationY}px"
 		style:width="{width}px"
-		style:height="20px"
+		style:height="{isPointAnnotation ? '20px' : '20px'}"
 		role={isPlaceholder ? "presentation" : "button"}
 		tabindex={isPlaceholder ? -1 : 0}
 		onmouseenter={() => {
@@ -211,13 +213,13 @@
 		{#if isPointAnnotation}
 			<!-- Point Annotation -->
 			<div
-				class="point-annotation relative flex items-center"
+				class="point-annotation relative flex items-center h-5"
 				style:color={annotation.color}
 			>
-				<!-- Dot -->
+				<!-- Dot - perfectly circular -->
 				<div
-					class="w-3 h-3 rounded-full border-2 transition-all duration-150"
-					class:scale-110={showUtility}
+					class="w-4 h-4 rounded-full border-2 transition-all duration-150 flex-shrink-0"
+					class:scale-125={showUtility}
 					class:shadow-lg={showUtility}
 					style:background-color={annotation.color}
 					style:border-color="white"
@@ -225,11 +227,59 @@
 				
 				<!-- Label -->
 				<div
-					class="ml-2 text-xs font-medium whitespace-nowrap transition-colors duration-150"
+					class="ml-2 text-xs font-medium whitespace-nowrap transition-colors duration-150 leading-tight"
 					class:text-white={showUtility}
+					style:color={annotation.color}
 				>
 					{annotation.label}
 				</div>
+
+				<!-- Utility Panel inside point annotation -->
+				{#if showUtility && !isPlaceholder}
+					<div 
+						class="annotation-utility-panel absolute z-10 flex items-center space-x-1"
+						style:right="-60px"
+						style:top="0px"
+						style:height="20px"
+						onmouseenter={() => {
+							cancelHideTimer();
+							isUtilityHovered = true;
+						}}
+						onmouseleave={() => {
+							startHideTimer();
+						}}
+						role="toolbar"
+						aria-label="Annotation actions"
+						tabindex="-1"
+					>
+						<button
+							class="utility-button w-5 h-5 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
+							class:bg-blue-600={true}
+							class:hover:bg-blue-500={true}
+							onclick={handleEdit}
+							title="Edit annotation"
+							aria-label="Edit annotation"
+							style:color="white"
+						>
+							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+								<path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path>
+							</svg>
+						</button>
+						<button
+							class="utility-button w-5 h-5 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
+							class:bg-red-600={true}
+							class:hover:bg-red-500={true}
+							onclick={handleDelete}
+							title="Delete annotation"
+							aria-label="Delete annotation"
+							style:color="white"
+						>
+							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+								<path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+							</svg>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{:else}
 			<!-- Duration Annotation -->
@@ -268,109 +318,61 @@
 						↔️
 					</div>
 				{/if}
+
+				<!-- Utility Panel inside duration annotation -->
+				{#if showUtility && !isPlaceholder}
+					<div 
+						class="annotation-utility-panel absolute z-10 h-full rounded transition-all duration-150 flex items-center space-x-1 px-2"
+						class:shadow-lg={true}
+						class:ring-2={true}
+						class:ring-white={true}
+						class:ring-opacity-50={true}
+						style:right="-60px"
+						style:top="0px"
+						style:height="20px"
+						style:background-color="{annotation.color}80"
+						style:border="1px solid {annotation.color}"
+						onmouseenter={() => {
+							cancelHideTimer();
+							isUtilityHovered = true;
+						}}
+						onmouseleave={() => {
+							startHideTimer();
+						}}
+						role="toolbar"
+						aria-label="Annotation actions"
+						tabindex="-1"
+					>
+						<button
+							class="utility-button w-4 h-4 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
+							class:bg-blue-600={true}
+							class:hover:bg-blue-500={true}
+							onclick={handleEdit}
+							title="Edit annotation"
+							aria-label="Edit annotation"
+							style:color="white"
+						>
+							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+								<path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path>
+							</svg>
+						</button>
+						<button
+							class="utility-button w-4 h-4 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
+							class:bg-red-600={true}
+							class:hover:bg-red-500={true}
+							onclick={handleDelete}
+							title="Delete annotation"
+							aria-label="Delete annotation"
+							style:color="white"
+						>
+							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+								<path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+							</svg>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
-	
-	<!-- External Utility Panel (appears on hover) -->
-	{#if showUtility && !isPlaceholder}
-		{#if isPointAnnotation}
-			<!-- Point annotation utility panel -->
-			<div 
-				class="annotation-utility-panel absolute z-10 flex items-center space-x-1 ml-2"
-				style:left="{width + 8}px"
-				style:top="0px"
-				style:height="20px"
-				onmouseenter={() => {
-					cancelHideTimer();
-					isUtilityHovered = true;
-				}}
-				onmouseleave={() => {
-					startHideTimer();
-				}}
-				role="toolbar"
-				aria-label="Annotation actions"
-				tabindex="-1"
-			>
-				<button
-					class="utility-button w-5 h-5 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
-					class:bg-blue-600={true}
-					class:hover:bg-blue-500={true}
-					onclick={handleEdit}
-					title="Edit annotation"
-					aria-label="Edit annotation"
-					style:color="white"
-				>
-					<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-						<path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path>
-					</svg>
-				</button>
-				<button
-					class="utility-button w-5 h-5 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
-					class:bg-red-600={true}
-					class:hover:bg-red-500={true}
-					onclick={handleDelete}
-					title="Delete annotation"
-					aria-label="Delete annotation"
-					style:color="white"
-				>
-					<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-						<path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-					</svg>
-				</button>
-			</div>
-		{:else}
-			<!-- Duration annotation utility panel -->
-			<div 
-				class="annotation-utility-panel absolute z-10 h-full rounded transition-all duration-150 flex items-center space-x-1 px-2"
-				class:shadow-lg={true}
-				class:ring-2={true}
-				class:ring-white={true}
-				class:ring-opacity-50={true}
-				style:left="{width + 4}px"
-				style:top="0px"
-				style:height="20px"
-				style:background-color="{annotation.color}80"
-				style:border="1px solid {annotation.color}"
-				onmouseenter={() => {
-					cancelHideTimer();
-					isUtilityHovered = true;
-				}}
-				onmouseleave={() => {
-					startHideTimer();
-				}}
-				role="toolbar"
-				aria-label="Annotation actions"
-				tabindex="-1"
-			>
-				<button
-					class="utility-button w-4 h-4 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
-					class:bg-blue-600={true}
-					class:hover:bg-blue-500={true}
-					onclick={handleEdit}
-					title="Edit annotation"
-					aria-label="Edit annotation"
-					style:color="white"
-				>
-					<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-						<path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path>
-					</svg>
-				</button>
-				<button
-					class="utility-button w-4 h-4 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
-					class:bg-red-600={true}
-					class:hover:bg-red-500={true}
-					onclick={handleDelete}
-					title="Delete annotation"
-					aria-label="Delete annotation"
-					style:color="white"
-				>
-					<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-						<path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-					</svg>
-				</button>
-			</div>
-		{/if}
-	{/if}
 </div>
 
 <style>

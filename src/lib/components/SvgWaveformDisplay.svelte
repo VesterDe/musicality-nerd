@@ -175,6 +175,69 @@
 		return chunks;
 	});
 
+	// Helper function to calculate annotation stacking positions
+	function calculateAnnotationStacks(annotations: any[], chunkBounds: any) {
+		if (annotations.length <= 1) {
+			return annotations.map(annotation => ({ ...annotation, stackPosition: 0 }));
+		}
+		
+		// Sort annotations by start time
+		const sortedAnnotations = [...annotations].sort((a, b) => a.startTimeMs - b.startTimeMs);
+		const annotationsWithStacks = [];
+		
+		// Convert pixel collision width to time for point annotations
+		const pointCollisionWidthMs = (50 / waveformConfig.width) * (chunkBounds.endTimeMs - chunkBounds.startTimeMs);
+		
+		for (const annotation of sortedAnnotations) {
+			let stackPosition = 0;
+			
+			// Check for overlaps with previously placed annotations
+			while (true) {
+				const overlapping = annotationsWithStacks.some(placedAnnotation => {
+					// Check if they're at the same stack level and overlap in time
+					if (placedAnnotation.stackPosition !== stackPosition) return false;
+					
+					// Determine effective collision bounds for both annotations
+					const currentIsPoint = annotation.isPoint || annotation.startTimeMs === annotation.endTimeMs;
+					const placedIsPoint = placedAnnotation.isPoint || placedAnnotation.startTimeMs === placedAnnotation.endTimeMs;
+					
+					let currentStart = annotation.startTimeMs;
+					let currentEnd = annotation.endTimeMs;
+					let placedStart = placedAnnotation.startTimeMs;
+					let placedEnd = placedAnnotation.endTimeMs;
+					
+					// Expand collision bounds for point annotations
+					if (currentIsPoint) {
+						const halfCollision = pointCollisionWidthMs / 2;
+						currentStart = annotation.startTimeMs - halfCollision;
+						currentEnd = annotation.startTimeMs + halfCollision;
+					}
+					
+					if (placedIsPoint) {
+						const halfCollision = pointCollisionWidthMs / 2;
+						placedStart = placedAnnotation.startTimeMs - halfCollision;
+						placedEnd = placedAnnotation.startTimeMs + halfCollision;
+					}
+					
+					// Check time overlap with collision bounds
+					const timeOverlap = currentStart < placedEnd && currentEnd > placedStart;
+					
+					return timeOverlap;
+				});
+				
+				if (!overlapping) {
+					break;
+				}
+				
+				stackPosition++;
+			}
+			
+			annotationsWithStacks.push({ ...annotation, stackPosition });
+		}
+		
+		return annotationsWithStacks;
+	}
+
 	// Lightweight computation: combine raw data with annotations and dynamic state
 	const chunkData = $derived.by(() => {
 		if (rawChunkData.length === 0) return [];
@@ -186,6 +249,9 @@
 			const chunkAnnotations = annotations.filter(annotation => 
 				annotation.startTimeMs < rawChunk.bounds.endTimeMs && annotation.endTimeMs > rawChunk.bounds.startTimeMs
 			);
+			
+			// Calculate stacking positions for overlapping annotations
+			const stackedAnnotations = calculateAnnotationStacks(chunkAnnotations, rawChunk.bounds);
 			
 			// Calculate placeholder visibility for this chunk (lightweight)
 			const placeholderVisible = showPlaceholder && 
@@ -199,13 +265,14 @@
 					endTimeMs: placeholderEndTimeMs,
 					label: placeholderStartTimeMs === placeholderEndTimeMs ? 'Point annotation' : 'New annotation',
 					color: '#ff5500',
-					isPoint: placeholderStartTimeMs === placeholderEndTimeMs
+					isPoint: placeholderStartTimeMs === placeholderEndTimeMs,
+					stackPosition: 0 // Placeholder always goes at bottom
 				};
 			}
 
 			return {
 				...rawChunk,
-				annotations: chunkAnnotations,
+				annotations: stackedAnnotations,
 				placeholderAnnotation,
 				isLooping: loopingChunkIndices.has(rawChunk.index)
 			};
@@ -837,6 +904,7 @@
 									chunkWidth={waveformConfig.width}
 									chunkHeight={waveformConfig.height}
 									chunkIndex={chunk.index}
+									stackPosition={annotation.stackPosition || 0}
 									onEdit={handleEditAnnotation}
 									onDelete={handleDeleteAnnotation}
 									onMove={handleMoveAnnotation}
@@ -853,6 +921,7 @@
 									chunkWidth={waveformConfig.width}
 									chunkHeight={waveformConfig.height}
 									chunkIndex={chunk.index}
+									stackPosition={chunk.placeholderAnnotation.stackPosition || 0}
 									isPlaceholder={true}
 								/>
 							</div>
