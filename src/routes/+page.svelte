@@ -23,6 +23,7 @@
 	let duration = $state(0);
 	let bpm = $state(120);
 	let beatOffset = $state(0); // in milliseconds
+	let sliderBeatOffset = $state(0); // slider display value, decoupled from beatOffset
 	let isSessionInitializing = $state(false);
 
 	// UI state
@@ -149,6 +150,7 @@
 		// Set all state at once after everything is ready
 		bpm = finalBpm;
 		beatOffset = finalBeatOffset;
+		sliderBeatOffset = finalBeatOffset; // Keep slider in sync
 		currentSession = session;
 	}
 
@@ -214,6 +216,7 @@
 			// Set all state at once after everything is ready
 			bpm = finalBpm;
 			beatOffset = finalBeatOffset;
+			sliderBeatOffset = finalBeatOffset; // Keep slider in sync
 			currentSession = updatedSession;
 			
 		} catch (error) {
@@ -253,22 +256,24 @@
 		// Define snap zone (within 5ms of zero)
 		const snapZone = 5;
 		
-		// Update beatOffset immediately for visual feedback
+		// Update slider display value immediately for smooth dragging
 		if (Math.abs(rawValue) <= snapZone) {
-			beatOffset = 0;
+			sliderBeatOffset = 0;
 		} else {
-			beatOffset = Math.round(rawValue);
+			sliderBeatOffset = Math.round(rawValue);
 		}
 		
-		// Debounce the actual session update
+		// Debounce the actual state update and session save
 		if (offsetUpdateTimeout) {
 			clearTimeout(offsetUpdateTimeout);
 		}
 		
 		offsetUpdateTimeout = setTimeout(async () => {
+			// Update the actual beatOffset state (this triggers rerenders)
+			beatOffset = sliderBeatOffset;
 			await updateSessionOffset();
 			offsetUpdateTimeout = null;
-		}, 300);
+		}, 250);
 	}
 
 	async function recalculateBpmFromSong() {
@@ -713,6 +718,7 @@
 		duration = 0;
 		bpm = 120;
 		beatOffset = 0;
+		sliderBeatOffset = 0; // Keep slider in sync
 		currentBeatIndex = -1;
 		
 		// Dispose of audio resources
@@ -826,7 +832,7 @@
 					<div class="relative">
 						<input 
 							type="range" 
-							bind:value={beatOffset}
+							value={sliderBeatOffset}
 							oninput={handleOffsetInput}
 							min={-(60 / bpm) * 500}
 							max={(60 / bpm) * 500}
