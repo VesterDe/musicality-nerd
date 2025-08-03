@@ -815,29 +815,31 @@
 			<!-- Track Info -->
 			<div class="bg-gray-800 rounded-lg p-4">
 				<h2 class="text-lg font-semibold mb-2">{currentSession.filename}</h2>
-				<div class="flex items-center space-x-4 text-sm text-gray-400 mb-3">
-					<span>Duration: {formatTime(duration)}</span>
-					<span>Beats: {currentSession.beats.length}</span>
-				</div>
 				
 				<!-- BPM Controls -->
-				<div class="flex items-center space-x-3 mb-3">
-					<label class="text-sm text-gray-300">BPM:</label>
-					<input 
-						type="number" 
-						bind:value={bpm}
-						oninput={async () => await updateSessionBpm(true)}
-						class="bg-gray-700 text-white px-2 py-1 rounded w-16 text-sm"
-						min="60" 
-						max="200"
-					/>
-					<button 
-						class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs transition-colors"
-						onclick={recalculateBpmFromSong}
-						disabled={isDetectingBpm}
-					>
-						{isDetectingBpm ? 'Calculating...' : 'Recalculate'}
-					</button>
+				<div class="flex items-center justify-between space-x-3 mb-3">
+					<div>
+            <label class="text-sm text-gray-300">BPM:</label>
+            <input 
+              type="number" 
+              bind:value={bpm}
+              oninput={async () => await updateSessionBpm(true)}
+              class="bg-gray-700 text-white px-2 py-1 rounded w-16 text-sm"
+              min="60" 
+              max="200"
+            />
+            <button 
+              class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs transition-colors"
+              onclick={recalculateBpmFromSong}
+              disabled={isDetectingBpm}
+            >
+              {isDetectingBpm ? 'Calculating...' : 'Recalculate'}
+            </button>
+          </div>
+          <div class="flex items-center space-x-4 text-sm text-gray-400">
+            <span>Duration: {formatTime(duration)}</span>
+            <span>Beats: {currentSession.beats.length}</span>
+          </div>
 				</div>
 
 				<!-- Beat Offset Slider -->
