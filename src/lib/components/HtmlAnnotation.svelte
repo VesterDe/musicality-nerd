@@ -12,6 +12,7 @@
 		onEdit?: (annotation: Annotation) => void;
 		onDelete?: (annotationId: string) => void;
 		onMove?: (annotationId: string, newStartTimeMs: number, newEndTimeMs: number) => void;
+		onDuplicate?: (annotation: Annotation) => void;
 		isPlaceholder?: boolean;
 	}
 
@@ -25,6 +26,7 @@
 		onEdit,
 		onDelete,
 		onMove,
+		onDuplicate,
 		isPlaceholder = false
 	}: Props = $props();
 
@@ -83,7 +85,7 @@
 	
 	const width = $derived(isPointAnnotation ? 12 : Math.max(20, endX() - startX())); // Minimum width for duration annotations
 	
-	const annotationY = $derived(chunkHeight - 60 - (stackPosition * 25)); // Stack from bottom up, 25px apart
+	const annotationY = $derived(chunkHeight - 20 - (stackPosition * 25)); // Stack from very bottom up, 25px apart
 
 	// Visibility is already handled by parent component, so we always render
 
@@ -170,6 +172,12 @@
 			onDelete(annotation.id);
 		}
 	}
+
+	function handleDuplicate() {
+		if (onDuplicate) {
+			onDuplicate(annotation);
+		}
+	}
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -238,7 +246,7 @@
 				{#if showUtility && !isPlaceholder}
 					<div 
 						class="annotation-utility-panel absolute z-10 flex items-center space-x-1"
-						style:right="-60px"
+						style:right="-90px"
 						style:top="0px"
 						style:height="20px"
 						onmouseenter={() => {
@@ -263,6 +271,20 @@
 						>
 							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
 								<path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path>
+							</svg>
+						</button>
+						<button
+							class="utility-button w-5 h-5 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
+							class:bg-green-600={true}
+							class:hover:bg-green-500={true}
+							onclick={handleDuplicate}
+							title="Duplicate annotation"
+							aria-label="Duplicate annotation"
+							style:color="white"
+						>
+							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+								<path d="M7 7h10v10H7z"></path>
+								<path d="M3 3h10v10H3z" fill="none" stroke="currentColor" stroke-width="1"></path>
 							</svg>
 						</button>
 						<button
@@ -327,7 +349,7 @@
 						class:ring-2={true}
 						class:ring-white={true}
 						class:ring-opacity-50={true}
-						style:right="-60px"
+						style:right="-90px"
 						style:top="0px"
 						style:height="20px"
 						style:background-color="{annotation.color}80"
@@ -354,6 +376,20 @@
 						>
 							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
 								<path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path>
+							</svg>
+						</button>
+						<button
+							class="utility-button w-4 h-4 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
+							class:bg-green-600={true}
+							class:hover:bg-green-500={true}
+							onclick={handleDuplicate}
+							title="Duplicate annotation"
+							aria-label="Duplicate annotation"
+							style:color="white"
+						>
+							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+								<path d="M7 7h10v10H7z"></path>
+								<path d="M3 3h10v10H3z" fill="none" stroke="currentColor" stroke-width="1"></path>
 							</svg>
 						</button>
 						<button

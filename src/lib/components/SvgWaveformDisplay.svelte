@@ -453,52 +453,6 @@
 
 
 
-	function handleWaveformClick(event: MouseEvent, chunkIndex: number, bounds: ChunkBounds) {
-		const svg = event.currentTarget as SVGElement;
-		const rect = svg.getBoundingClientRect();
-		const x = event.clientX - rect.left;
-		
-		// Special handling for chunk -1
-		if (chunkIndex === -1 && beatOffset !== 0) {
-			const offsetInSeconds = Math.abs(beatOffset) / 1000;
-			
-			if (beatOffset > 0) {
-				// Positive offset: check if click is in empty space or song portion
-				const songStartX = (offsetInSeconds / chunkDuration) * waveformConfig.width;
-				
-				if (x < songStartX) {
-					// Click in pre-song space - seek to beginning (time 0)
-					if (onSeek) onSeek(0);
-				} else {
-					// Click in song portion - calculate time based on position within song area
-					const relativeX = x - songStartX;
-					const songPortionWidth = waveformConfig.width - songStartX;
-					const normalizedPosition = relativeX / songPortionWidth;
-					const clickTime = normalizedPosition * (chunkDuration - offsetInSeconds);
-					if (onSeek) onSeek(clickTime);
-				}
-			} else if (beatOffset < 0) {
-				// Negative offset: empty space on left, song on right
-				const songStartX = ((chunkDuration - offsetInSeconds) / chunkDuration) * waveformConfig.width;
-				
-				if (x < songStartX) {
-					// Click in empty space - seek to beginning (time 0)
-					if (onSeek) onSeek(0);
-				} else {
-					// Click in song portion
-					const relativeX = x - songStartX;
-					const songPortionWidth = waveformConfig.width - songStartX;
-					const normalizedPosition = relativeX / songPortionWidth;
-					const clickTime = normalizedPosition * offsetInSeconds;
-					if (onSeek) onSeek(clickTime);
-				}
-			}
-		} else {
-			// Normal chunk handling
-			const clickTime = pixelToTime(x, bounds, waveformConfig.width);
-			if (onSeek) onSeek(clickTime / 1000);
-		}
-	}
 
 	function handleWaveformMouseDown(event: MouseEvent, chunkIndex: number, bounds: ChunkBounds) {
 		// Start drag for annotation creation
@@ -625,6 +579,22 @@
 			startTimeMs: newStartTimeMs, 
 			endTimeMs: newEndTimeMs 
 		});
+	}
+
+	function handleDuplicateAnnotation(annotation: any) {
+		// Calculate the duration of the annotation
+		const duration = annotation.endTimeMs - annotation.startTimeMs;
+		const isPoint = annotation.isPoint || duration === 0;
+		
+		// Position the duplicate immediately to the right
+		// For point annotations, add a small offset (500ms)
+		// For duration annotations, place it right after the original ends
+		const offset = isPoint ? 200 : duration || 200;
+		const newStartTimeMs = annotation.endTimeMs + offset;
+		const newEndTimeMs = isPoint ? newStartTimeMs : newStartTimeMs + duration;
+		
+		// Create the duplicate with same label and color
+		onAnnotationCreated?.(newStartTimeMs, newEndTimeMs, annotation.label, annotation.color, isPoint);
 	}
 
 	async function handleChunkExport(chunkIndex: number, startTime: number, endTime: number) {
@@ -795,8 +765,7 @@
 						width={waveformConfig.width}
 						height={waveformConfig.height}
 						viewBox="0 0 {waveformConfig.width} {waveformConfig.height}"
-						class="block cursor-pointer"
-						onclick={(event) => handleWaveformClick(event, chunk.index, chunk.bounds)}
+						class="block cursor-crosshair"
 						onmousedown={(event) => handleWaveformMouseDown(event, chunk.index, chunk.bounds)}
 					>
 						{#if chunk.isSpecialChunk}
@@ -908,6 +877,7 @@
 									onEdit={handleEditAnnotation}
 									onDelete={handleDeleteAnnotation}
 									onMove={handleMoveAnnotation}
+									onDuplicate={handleDuplicateAnnotation}
 								/>
 							</div>
 						{/each}
