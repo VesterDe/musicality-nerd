@@ -406,17 +406,20 @@
 				chunkStartGridTime = chunkIndex * chunkDuration;
 			}
 			
-			// Check each beat line in this chunk
-			for (let beatIndex = 1; beatIndex < beatGrouping; beatIndex++) {
+			// Check each beat line in this chunk (now includes half-beats)
+			// We iterate through half-beat increments to match generateBeatGrid
+			let lineIndex = 0;
+			for (let i = 0.5; i < beatGrouping; i += 0.5) {
 				// Calculate when this beat line occurs in grid time
-				const beatLineGridTime = chunkStartGridTime + (beatIndex * beatDuration);
+				const beatLineGridTime = chunkStartGridTime + (i * beatDuration);
 				
 				// Check if current grid time is within 50ms of this beat line
 				const timeDiff = Math.abs(gridTime - beatLineGridTime);
 				
 				if (timeDiff <= flashDuration / 2) {
-					activeLines.add(`${chunkIndex}-${beatIndex - 1}`);
+					activeLines.add(`${chunkIndex}-${lineIndex}`);
 				}
+				lineIndex++;
 			}
 		}
 		
@@ -835,17 +838,22 @@
 							{#each chunk.beatLines as line, beatIndex}
 								{@const lineKey = `${chunk.index}-${beatIndex}`}
 								{@const isActiveBeat = activeBeatLines.has(lineKey)}
+								{@const isHalfBeat = line.type === 'half-beat'}
 								<line
 									x1={line.x}
 									y1="0"
 									x2={line.x}
 									y2={waveformConfig.height}
 									stroke={isActiveBeat 
-										? '#3b82f6' 
-										: line.type === 'quarter' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.3)'}
-									stroke-width={isActiveBeat ? '3' : line.type === 'quarter' ? '1.5' : '1'}
+										? (isHalfBeat ? 'rgba(251, 191, 36, 0.3)' : '#fbbf24')
+										: line.type === 'quarter' ? 'rgba(255, 255, 255, 0.5)' 
+										: line.type === 'beat' ? 'rgba(255, 255, 255, 0.3)'
+										: 'rgba(255, 255, 255, 0.15)'}
+									stroke-width={isActiveBeat 
+										? (isHalfBeat ? '0.8' : '3')
+										: line.type === 'quarter' ? '1.5' : line.type === 'beat' ? '1' : '0.5'}
 									class={isActiveBeat ? 'beat-active' : ''}
-									style={isActiveBeat ? 'filter: drop-shadow(0 0 4px #3b82f6);' : ''}
+									style={isActiveBeat ? (isHalfBeat ? '' : 'filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.8));') : ''}
 								/>
 							{/each}
 
@@ -901,19 +909,39 @@
 			{/each}
 		</div>
 
-		<!-- Playhead (positioned over the appropriate chunk) -->
+		<!-- Playhead triangles (positioned over the appropriate chunk) -->
 		{#if playheadInfo && chunkData.length > 0}
 			{@const targetChunk = chunkData.find(c => c.index === playheadInfo.chunkIndex)}
 			{@const chunkContainerIndex = playheadInfo.chunkContainerIndex}
 			{#if targetChunk && chunkContainerIndex < chunkData.length}
+				{@const topY = chunkContainerIndex * (waveformConfig.height + 32 + 8) + 40}
+				{@const bottomY = topY + waveformConfig.height}
+				
+				<!-- Top triangle pointing down (inside the row) -->
 				<div
 					class="absolute pointer-events-none transition-all duration-100 ease-out"
-					style:left="{playheadInfo.x}px"
-					style:top="{chunkContainerIndex * (waveformConfig.height + 32 + 8) + 40}px"
-					style:width="3px"
-					style:height="{waveformConfig.height}px"
-					style:background-color="#fbbf24"
-					style:box-shadow="0 0 4px rgba(251, 191, 36, 0.8)"
+					style:left="{playheadInfo.x - 4}px"
+					style:top="{topY + 2}px"
+					style:width="0"
+					style:height="0"
+					style:border-left="4px solid transparent"
+					style:border-right="4px solid transparent"
+					style:border-top="8px solid #fbbf24"
+					style:filter="drop-shadow(0 0 2px rgba(251, 191, 36, 0.8))"
+					style:z-index="20"
+				></div>
+				
+				<!-- Bottom triangle pointing up (inside the row) -->
+				<div
+					class="absolute pointer-events-none transition-all duration-100 ease-out"
+					style:left="{playheadInfo.x - 4}px"
+					style:top="{bottomY - 10}px"
+					style:width="0"
+					style:height="0"
+					style:border-left="4px solid transparent"
+					style:border-right="4px solid transparent"
+					style:border-bottom="8px solid #fbbf24"
+					style:filter="drop-shadow(0 0 2px rgba(251, 191, 36, 0.8))"
 					style:z-index="20"
 				></div>
 			{/if}

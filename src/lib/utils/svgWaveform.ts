@@ -288,18 +288,21 @@ export function generateBeatGrid(
 	beatsPerChunk: number,
 	width: number,
 	_height: number
-): Array<{ x: number; type: 'quarter' | 'beat' }> {
-	const lines: Array<{ x: number; type: 'quarter' | 'beat' }> = [];
+): Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }> {
+	const lines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }> = [];
 	
-	// Skip start (i=0) and end (i=beatsPerChunk) markers
-	for (let i = 1; i < beatsPerChunk; i++) {
+	// Generate both beat and half-beat lines
+	// We iterate through half-beat increments (0.5, 1, 1.5, 2, etc.)
+	for (let i = 0.5; i < beatsPerChunk; i += 0.5) {
 		const x = (i / beatsPerChunk) * width;
 		
-		let type: 'quarter' | 'beat';
+		let type: 'quarter' | 'beat' | 'half-beat';
 		if (i % 4 === 0) {
 			type = 'quarter';
-		} else {
+		} else if (i % 1 === 0) {
 			type = 'beat';
+		} else {
+			type = 'half-beat';
 		}
 		
 		lines.push({ x, type });
