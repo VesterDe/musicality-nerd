@@ -963,9 +963,17 @@
 					<div><kbd class="bg-gray-700 px-1 rounded">→</kbd> Jump forward 8 beats</div>
 				</div>
 			</div>
+
+			<!-- Footer -->
+			<div class="bg-gray-800 rounded-lg p-4 text-center">
+				<p class="text-sm text-gray-400">
+					Made with love by <a href="https://vester.si/blog/me" target="_blank" class="text-amber-500 hover:text-amber-400 transition-colors">Demjan</a>
+				</p>
+			</div>
 		{/if}
 	</div>
 </main>
+
 
 <style>
 	kbd {
