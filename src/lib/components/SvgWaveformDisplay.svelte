@@ -77,6 +77,8 @@
 	let dragEndTimeMs = $state(0);
 	let dragStartChunk = $state(-1);
 	let dragCurrentChunk = $state(-1);
+	let lastPointerClientX = $state(0);
+	let lastPointerClientY = $state(0);
 
 	// Placeholder annotation state
 	let showPlaceholder = $state(false);
@@ -118,8 +120,8 @@
 			const isSpecialChunk = chunkIndex === -1 && beatOffset !== 0;
 			
 			// Generate waveform data (expensive operations)
-			let waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
-			let beatLines: Array<{ x: number; type: 'quarter' | 'beat' }> = [];
+				let waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
+				let beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }> = [];
 			let headerInfo = '';
 			
 			if (isSpecialChunk) {
@@ -176,14 +178,17 @@
 	});
 
 	// Helper function to calculate annotation stacking positions
-	function calculateAnnotationStacks(annotations: any[], chunkBounds: any) {
+	function calculateAnnotationStacks(
+		annotations: Annotation[],
+		chunkBounds: ChunkBounds
+	): Array<Annotation & { stackPosition: number }> {
 		if (annotations.length <= 1) {
 			return annotations.map(annotation => ({ ...annotation, stackPosition: 0 }));
 		}
 		
 		// Sort annotations by start time
-		const sortedAnnotations = [...annotations].sort((a, b) => a.startTimeMs - b.startTimeMs);
-		const annotationsWithStacks = [];
+		const sortedAnnotations: Annotation[] = [...annotations].sort((a, b) => a.startTimeMs - b.startTimeMs);
+		const annotationsWithStacks: Array<Annotation & { stackPosition: number }> = [];
 		
 		// Convert pixel collision width to time for point annotations
 		const pointCollisionWidthMs = (50 / waveformConfig.width) * (chunkBounds.endTimeMs - chunkBounds.startTimeMs);
@@ -462,6 +467,8 @@
 		const svg = event.currentTarget as SVGElement;
 		const rect = svg.getBoundingClientRect();
 		const x = event.clientX - rect.left;
+		lastPointerClientX = event.clientX;
+		lastPointerClientY = event.clientY;
 		
 		dragStartTimeMs = pixelToTime(x, bounds, waveformConfig.width);
 		dragEndTimeMs = dragStartTimeMs;
@@ -481,6 +488,34 @@
 		event.preventDefault();
 	}
 
+	function handleWaveformTouchStart(event: TouchEvent, chunkIndex: number, bounds: ChunkBounds) {
+		if (event.touches.length === 0) return;
+		const touch = event.touches[0];
+		const svg = event.currentTarget as SVGElement;
+		const rect = svg.getBoundingClientRect();
+		const x = touch.clientX - rect.left;
+		lastPointerClientX = touch.clientX;
+		lastPointerClientY = touch.clientY;
+
+		dragStartTimeMs = pixelToTime(x, bounds, waveformConfig.width);
+		dragEndTimeMs = dragStartTimeMs;
+		dragStartChunk = chunkIndex;
+		dragCurrentChunk = chunkIndex;
+		isDragging = true;
+
+		// Show initial placeholder for point annotation
+		showPlaceholder = true;
+		placeholderStartTimeMs = dragStartTimeMs;
+		placeholderEndTimeMs = dragStartTimeMs;
+
+		// Add global touch handlers
+		document.addEventListener('touchmove', handleGlobalTouchMove, { passive: false });
+		document.addEventListener('touchend', handleGlobalTouchEnd);
+		document.addEventListener('touchcancel', handleGlobalTouchEnd);
+
+		event.preventDefault();
+	}
+
 	function handleGlobalMouseMove(event: MouseEvent) {
 		if (!isDragging) return;
 
@@ -496,6 +531,8 @@
 				
 				dragEndTimeMs = pixelToTime(x, bounds, waveformConfig.width);
 				dragCurrentChunk = chunkIndex;
+				lastPointerClientX = event.clientX;
+				lastPointerClientY = event.clientY;
 
 				// Update placeholder annotation
 				showPlaceholder = true;
@@ -523,6 +560,61 @@
 		showAnnotationPopup = true;
 		popupX = event.clientX;
 		popupY = event.clientY;
+		annotationStartTimeMs = Math.min(dragStartTimeMs, dragEndTimeMs);
+		annotationEndTimeMs = isPoint ? annotationStartTimeMs : Math.max(dragStartTimeMs, dragEndTimeMs);
+		editingAnnotation = null;
+	}
+
+	function handleGlobalTouchMove(event: TouchEvent) {
+		if (!isDragging) return;
+		if (event.touches.length === 0) return;
+		const touch = event.touches[0];
+
+		// Find which chunk we're over
+		const chunkElement = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('[data-chunk-index]');
+		if (chunkElement) {
+			const chunkIndex = parseInt(chunkElement.getAttribute('data-chunk-index') || '0');
+			const svg = chunkElement.querySelector('svg');
+			if (svg) {
+				const rect = (svg as SVGElement).getBoundingClientRect();
+				const x = touch.clientX - rect.left;
+				const bounds = calculateChunkBounds(chunkIndex, waveformConfig);
+				
+				dragEndTimeMs = pixelToTime(x, bounds, waveformConfig.width);
+				dragCurrentChunk = chunkIndex;
+				lastPointerClientX = touch.clientX;
+				lastPointerClientY = touch.clientY;
+
+				// Update placeholder annotation
+				showPlaceholder = true;
+				placeholderStartTimeMs = Math.min(dragStartTimeMs, dragEndTimeMs);
+				placeholderEndTimeMs = Math.max(dragStartTimeMs, dragEndTimeMs);
+			}
+		}
+
+		event.preventDefault();
+	}
+
+	function handleGlobalTouchEnd(event: TouchEvent) {
+		if (!isDragging) return;
+
+		isDragging = false;
+		document.removeEventListener('touchmove', handleGlobalTouchMove);
+		document.removeEventListener('touchend', handleGlobalTouchEnd);
+		document.removeEventListener('touchcancel', handleGlobalTouchEnd);
+
+		// Determine if this was a tap or drag
+		const timeDiff = Math.abs(dragEndTimeMs - dragStartTimeMs);
+		const isPoint = timeDiff < 50; // Less than 50ms = point annotation
+
+		// Hide placeholder immediately - dragging is complete
+		showPlaceholder = false;
+
+		// Use last known touch position for popup
+		showAnnotationPopup = true;
+		const touch = event.changedTouches && event.changedTouches[0] ? event.changedTouches[0] : null;
+		popupX = touch ? touch.clientX : lastPointerClientX;
+		popupY = touch ? touch.clientY : lastPointerClientY;
 		annotationStartTimeMs = Math.min(dragStartTimeMs, dragEndTimeMs);
 		annotationEndTimeMs = isPoint ? annotationStartTimeMs : Math.max(dragStartTimeMs, dragEndTimeMs);
 		editingAnnotation = null;
@@ -770,6 +862,8 @@
 						viewBox="0 0 {waveformConfig.width} {waveformConfig.height}"
 						class="block cursor-crosshair"
 						onmousedown={(event) => handleWaveformMouseDown(event, chunk.index, chunk.bounds)}
+						style:touch-action="none"
+						ontouchstart={(event) => handleWaveformTouchStart(event, chunk.index, chunk.bounds)}
 					>
 						{#if chunk.isSpecialChunk}
 							<!-- Special chunk -1 with diagonal hatching pattern -->
@@ -838,20 +932,20 @@
 							{#each chunk.beatLines as line, beatIndex}
 								{@const lineKey = `${chunk.index}-${beatIndex}`}
 								{@const isActiveBeat = activeBeatLines.has(lineKey)}
-								{@const isHalfBeat = line.type === 'half-beat'}
+				{@const isHalfBeat = line.type === 'half-beat'}
 								<line
 									x1={line.x}
 									y1="0"
 									x2={line.x}
 									y2={waveformConfig.height}
-									stroke={isActiveBeat 
-										? (isHalfBeat ? 'rgba(251, 191, 36, 0.3)' : '#fbbf24')
-										: line.type === 'quarter' ? 'rgba(255, 255, 255, 0.5)' 
-										: line.type === 'beat' ? 'rgba(255, 255, 255, 0.3)'
-										: 'rgba(255, 255, 255, 0.15)'}
+					stroke={isActiveBeat 
+						? (isHalfBeat ? 'rgba(251, 191, 36, 0.3)' : '#fbbf24')
+						: line.type === 'quarter' ? 'rgba(255, 255, 255, 0.5)' 
+						: line.type === 'beat' ? 'rgba(255, 255, 255, 0.3)'
+						: 'rgba(255, 255, 255, 0.15)'}
 									stroke-width={isActiveBeat 
 										? (isHalfBeat ? '0.8' : '3')
-										: line.type === 'quarter' ? '1.5' : line.type === 'beat' ? '1' : '0.5'}
+						: line.type === 'quarter' ? '1.5' : line.type === 'beat' ? '1' : '0.5'}
 									class={isActiveBeat ? 'beat-active' : ''}
 									style={isActiveBeat ? (isHalfBeat ? '' : 'filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.8));') : ''}
 								/>

@@ -40,6 +40,7 @@
 	let originalStartTime = $state(0);
 	let originalEndTime = $state(0);
 	let hideTimeout: number | null = $state(null);
+	let lastPointerClientX = $state(0);
 
 	// Show utility panel when either annotation or utility panel is hovered
 	const showUtility = $derived(isHovered || isUtilityHovered);
@@ -110,10 +111,37 @@
 		}
 		
 		dragStartX = event.clientX;
+		lastPointerClientX = event.clientX;
 		
 		// Add global mouse listeners
 		document.addEventListener('mousemove', handleGlobalMouseMove);
 		document.addEventListener('mouseup', handleGlobalMouseUp);
+	}
+
+	function handleTouchStart(event: TouchEvent) {
+		if (isPlaceholder) return;
+		if (event.touches.length === 0) return;
+		event.stopPropagation();
+		const touch = event.touches[0];
+		const target = event.target as HTMLElement;
+
+		if (target.classList.contains('resize-handle')) {
+			isResizing = true;
+			resizeHandle = target.dataset.handle as 'start' | 'end';
+			originalStartTime = annotation.startTimeMs;
+			originalEndTime = annotation.endTimeMs;
+		} else {
+			isDragging = true;
+			originalStartTime = annotation.startTimeMs;
+			originalEndTime = annotation.endTimeMs;
+		}
+
+		dragStartX = touch.clientX;
+		lastPointerClientX = touch.clientX;
+
+		document.addEventListener('touchmove', handleGlobalTouchMove, { passive: false });
+		document.addEventListener('touchend', handleGlobalTouchEnd);
+		document.addEventListener('touchcancel', handleGlobalTouchEnd);
 	}
 
 	function handleGlobalMouseMove(event: MouseEvent) {
@@ -121,6 +149,7 @@
 		
 		const deltaX = event.clientX - dragStartX;
 		const deltaTime = (deltaX / chunkWidth) * (chunkBounds.endTimeMs - chunkBounds.startTimeMs);
+		lastPointerClientX = event.clientX;
 		
 		if (isResizing && resizeHandle) {
 			// Handle resizing
@@ -158,6 +187,50 @@
 		
 		document.removeEventListener('mousemove', handleGlobalMouseMove);
 		document.removeEventListener('mouseup', handleGlobalMouseUp);
+	}
+
+	function handleGlobalTouchMove(event: TouchEvent) {
+		if (!isDragging && !isResizing) return;
+		if (event.touches.length === 0) return;
+		const touch = event.touches[0];
+		const deltaX = touch.clientX - dragStartX;
+		const deltaTime = (deltaX / chunkWidth) * (chunkBounds.endTimeMs - chunkBounds.startTimeMs);
+		lastPointerClientX = touch.clientX;
+
+		if (isResizing && resizeHandle) {
+			if (resizeHandle === 'start') {
+				const newStartTime = Math.max(0, originalStartTime + deltaTime);
+				if (newStartTime < annotation.endTimeMs - 100) {
+					annotation.startTimeMs = Math.round(newStartTime / 25) * 25;
+				}
+			} else if (resizeHandle === 'end') {
+				const newEndTime = originalEndTime + deltaTime;
+				if (newEndTime > annotation.startTimeMs + 100) {
+					annotation.endTimeMs = Math.round(newEndTime / 25) * 25;
+				}
+			}
+		} else if (isDragging) {
+			const duration = originalEndTime - originalStartTime;
+			const newStartTime = Math.max(0, originalStartTime + deltaTime);
+			annotation.startTimeMs = Math.round(newStartTime / 25) * 25;
+			annotation.endTimeMs = annotation.startTimeMs + duration;
+		}
+
+		event.preventDefault();
+	}
+
+	function handleGlobalTouchEnd() {
+		if (isDragging || isResizing) {
+			if (onMove) {
+				onMove(annotation.id, annotation.startTimeMs, annotation.endTimeMs);
+			}
+		}
+		isDragging = false;
+		isResizing = false;
+		resizeHandle = null;
+		document.removeEventListener('touchmove', handleGlobalTouchMove);
+		document.removeEventListener('touchend', handleGlobalTouchEnd);
+		document.removeEventListener('touchcancel', handleGlobalTouchEnd);
 	}
 
 	function handleEdit() {
@@ -209,6 +282,8 @@
 			}
 		}}
 		onmousedown={handleMouseDown}
+		ontouchstart={handleTouchStart}
+		style:touch-action="none"
 		onkeydown={(e) => {
 			if (isPlaceholder) return;
 			if (e.key === 'Enter' || e.key === ' ') {
