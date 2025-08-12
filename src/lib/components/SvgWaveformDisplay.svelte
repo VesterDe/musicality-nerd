@@ -751,13 +751,13 @@
 								onclick={() => handleChunkExport(chunk.index, chunk.startTime, chunk.endTime)}
 								disabled={exportingChunks.has(chunk.index)}
 							>
-								{exportingChunks.has(chunk.index) ? '⏳ Exporting...' : '📥 Download'}
+								{exportingChunks.has(chunk.index) ? '⏳' : '📥'}
 							</button>
 							<button
 								class="px-2 py-1 rounded text-xs transition-colors {chunk.isLooping ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}"
 								onclick={() => toggleChunkLoop(chunk.index, chunk.startTime, chunk.endTime)}
 							>
-								{chunk.isLooping ? 'Stop Loop' : 'Loop'}
+								{chunk.isLooping ? '⏹️' : '🔁'}
 							</button>
 						</div>
 					</div>
