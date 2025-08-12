@@ -1,4 +1,5 @@
-import { analyze } from 'web-audio-beat-detector';
+// Dynamically import analyzer in browser to avoid bundling it in SSR build
+let analyze: ((audioBuffer: AudioBuffer) => Promise<number>) | null = null;
 
 export class BpmDetector {
 	// Event handlers
@@ -13,6 +14,14 @@ export class BpmDetector {
 	 * Detect BPM from an AudioBuffer
 	 */
 	async detectBpm(audioBuffer: AudioBuffer): Promise<number> {
+    if (!analyze) {
+      // Only load in the browser
+      if (typeof window === 'undefined') {
+        throw new Error('BPM detection not available during SSR');
+      }
+      const mod = await import('web-audio-beat-detector');
+      analyze = mod.analyze as (buf: AudioBuffer) => Promise<number>;
+    }
 		if (this.isDetecting) {
 			throw new Error('BPM detection already in progress');
 		}
@@ -21,7 +30,7 @@ export class BpmDetector {
 
 		try {
 			// Use web-audio-beat-detector to analyze the audio
-			const bpm = await analyze(audioBuffer);
+      const bpm = await analyze(audioBuffer);
 
 			// Round to 1 decimal place
 			const roundedBpm = Math.round(bpm * 10) / 10;

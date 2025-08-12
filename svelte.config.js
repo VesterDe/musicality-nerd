@@ -5,12 +5,16 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 const config = {
 	preprocess: vitePreprocess(),
 
-	kit: {
-		adapter: adapter(),
-		paths: {
-			base: '/musicality-nerd'
-		}
-	}
+    kit: {
+        adapter: adapter(),
+        // CSR only app; prerender handled via +layout.ts
+        files: {
+            // keep defaults
+        },
+        paths: {
+            base: '/musicality-nerd'
+        }
+    }
 };
 
 export default config;
