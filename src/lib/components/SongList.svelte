@@ -124,7 +124,7 @@
 			</p>
 			<input 
 				type="file" 
-				accept="audio/*"
+				accept="audio/*,audio/mpeg,audio/mp3,audio/mp4,audio/m4a,audio/ogg,audio/wav,audio/webm,.mp3,.wav"
 				class="hidden"
 				bind:this={fileInput}
 				onchange={(e) => {
