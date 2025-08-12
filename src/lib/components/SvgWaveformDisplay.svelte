@@ -835,7 +835,7 @@
 									class="px-2 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded text-xs transition-colors"
 									onclick={handleGroupExport}
 								>
-									📦 Download Group ({loopingChunkIndices.size})
+									📦 ({loopingChunkIndices.size})
 								</button>
 							{/if}
 							<button
