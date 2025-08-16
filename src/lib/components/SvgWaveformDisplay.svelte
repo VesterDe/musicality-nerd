@@ -16,6 +16,7 @@
 	interface Props {
 		currentTime: number;
 		bpm: number;
+		targetBPM: number;
 		audioEngine: AudioEngine;
 		beatOffset: number;
 		beatsPerLine: number;
@@ -35,6 +36,7 @@
 	let { 
 		currentTime = 0, 
 		bpm = 120,
+		targetBPM = 120,
 		audioEngine,
 		beatOffset = 0,
 		beatsPerLine = 16,
@@ -88,6 +90,8 @@
 
 	// Derived values
 	const chunkDuration = $derived(beatGrouping * (60 / bpm));
+	const effectiveChunkDuration = $derived(beatGrouping * (60 / targetBPM));
+	const effectiveDuration = $derived(audioDuration * (bpm / targetBPM));
 	const totalChunks = $derived.by(() => {
 		if (audioDuration <= 0) return 0;
 		const baseChunks = Math.ceil(audioDuration / chunkDuration);
@@ -805,13 +809,13 @@
 		<div class="mt-2 flex items-center space-x-4 text-xs text-gray-500">
 			<div class="flex items-center space-x-4">
 				<div class="text-sm text-gray-400">
-					<span>Duration: {audioDuration.toFixed(1)}s</span>
+					<span>Duration: {effectiveDuration.toFixed(1)}s</span>
 					<span class="mx-2">•</span>
-					<span>Chunk Duration: {chunkDuration.toFixed(2)}s</span>
+					<span>Chunk Duration: {effectiveChunkDuration.toFixed(2)}s</span>
 					<span class="mx-2">•</span>
 					<span>Total Chunks: {totalChunks}</span>
 					<span class="mx-2">•</span>
-					<span>BPM: {bpm}</span>
+					<span>BPM: {targetBPM}</span>
 					<span class="mx-2">•</span>
 					<span>Offset: {beatOffset}ms</span>
 				</div>

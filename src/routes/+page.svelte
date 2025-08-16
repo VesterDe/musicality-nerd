@@ -21,10 +21,13 @@
 	let isPlaying = $state(false);
 	let currentTime = $state(0);
 	let duration = $state(0);
-	let bpm = $state(120);
+	let bpm = $state(0);
 	let beatOffset = $state(0); // in milliseconds
 	let sliderBeatOffset = $state(0); // slider display value, decoupled from beatOffset
 	let isSessionInitializing = $state(false);
+	
+	// Playback speed controls
+	let targetBPM = $state(0); // Desired BPM for practice
 
 	// UI state
 	let currentBeatIndex = $state(-1);
@@ -35,7 +38,6 @@
 	let offsetUpdateTimeout: number | null = $state(null);
 	let isDraggingProgress = $state(false);
 	
-
 	onMount(async () => {
 		// Initialize services
 		audioEngine = new AudioEngine();
@@ -62,6 +64,7 @@
 			// Only update if BPM wasn't manually set
 			if (!currentSession?.manualBpm) {
 				bpm = newBpm;
+        updatePlaybackSpeed();
 			}
 		};
 
@@ -122,6 +125,12 @@
 		// Initialize local state from session
 		let finalBpm = session.bpm;
 		let finalBeatOffset = Math.round(session.beatOffset);
+		
+		// Initialize speed controls
+		// Use saved targetBPM if it exists and is not 0, otherwise use the song's BPM
+    console.log('session.targetBPM', session.targetBPM, finalBpm);
+		targetBPM = (session.targetBPM && session.targetBPM > 0) ? session.targetBPM : finalBpm;
+		updatePlaybackSpeed();
 		
 		// Run BPM detection if not manually set
 		if (!session.manualBpm) {
@@ -233,6 +242,10 @@
 		try {
 			const updatedSession = await persistenceService.updateSessionBpm(currentSession.id, bpm, duration, isManual);
 			currentSession = updatedSession;
+			// When BPM changes, update target BPM to match if not manually set
+			if (!isManual) {
+				targetBPM = bpm;
+			}
 		} catch (error) {
 			console.error('Failed to update BPM:', error);
 		}
@@ -246,6 +259,29 @@
 			currentSession = updatedSession;
 		} catch (error) {
 			console.error('Failed to update offset:', error);
+		}
+	}
+	
+	function updatePlaybackSpeed() {
+		const rate = bpm > 0 ? targetBPM / bpm : 1;
+    console.log('updatePlaybackSpeed', rate, bpm, targetBPM);
+		audioEngine.setPlaybackRate(rate);
+		
+		// Save speed settings to session
+		updateSessionSpeed();
+	}
+	
+	async function updateSessionSpeed() {
+		if (!currentSession) return;
+		
+		// Update the session with new speed settings
+		currentSession.targetBPM = targetBPM;
+		
+		try {
+			// Save only the targetBPM update
+			await persistenceService.updateSessionTargetBPM(currentSession.id, targetBPM);
+		} catch (error) {
+			console.error('Failed to save speed settings:', error);
 		}
 	}
 
@@ -291,6 +327,7 @@
 				alert('Failed to recalculate BPM from song.');
 			} finally {
 				isDetectingBpm = false;
+        updatePlaybackSpeed();
 			}
 		}
 	}
@@ -766,17 +803,26 @@
 <main class="min-h-screen bg-gray-900 text-white">
 	<!-- Header -->
 	<header class="bg-gray-800 border-b border-gray-700 p-4">
-		<div class="max-w-7xl mx-auto flex items-center justify-between">
-			<div>
-				<h1 class="text-2xl font-bold text-blue-400">Musicality Nerd</h1>
-			</div>
+		<div class="max-w-7xl mx-auto">
 			{#if currentSession}
-				<button
-					class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm transition-colors"
-					onclick={returnToSongList}
-				>
-					← Song List
-				</button>
+				<div class="flex items-center justify-between">
+					<button
+						class="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded-lg text-sm transition-colors"
+						onclick={returnToSongList}
+					>
+						← Song List
+					</button>
+					<h2 class="text-lg font-semibold flex-1 text-center">{currentSession.filename}</h2>
+					<div class="text-sm text-gray-400">
+						Duration: {formatTime(duration)} • Beats: {currentSession.beats.length}
+					</div>
+				</div>
+			{:else}
+				<div class="flex items-center justify-between">
+					<div>
+						<h1 class="text-2xl font-bold text-blue-400">Musicality Nerd</h1>
+					</div>
+				</div>
 			{/if}
 		</div>
 	</header>
@@ -791,60 +837,96 @@
 				onFilesDrop={handleFilesDrop}
 			/>
 		{:else}
-			<!-- Track Info -->
+			<!-- Combined Controls Row -->
 			<div class="bg-gray-800 rounded-lg p-4">
-				<h2 class="text-lg font-semibold mb-2">{currentSession.filename}</h2>
-				
-				<!-- BPM Controls -->
-				<div class="flex items-center justify-between space-x-3 mb-3">
-					<div>
-            <label class="text-sm text-gray-300" for="bpm">BPM:</label>
-            <input 
-              type="number" 
-              bind:value={bpm}
-              oninput={async () => await updateSessionBpm(true)}
-              class="bg-gray-700 text-white px-2 py-1 rounded w-16 text-sm"
-              min="60" 
-              max="200"
-            />
-            <button 
-              class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs transition-colors"
-              onclick={recalculateBpmFromSong}
-              disabled={isDetectingBpm}
-            >
-              {isDetectingBpm ? 'Calculating...' : 'Recalculate'}
-            </button>
-          </div>
-          <div class="flex items-center space-x-4 text-sm text-gray-400">
-            <span>Duration: {formatTime(duration)}</span>
-            <span>Beats: {currentSession.beats.length}</span>
-          </div>
-				</div>
-
-				<!-- Beat Offset Slider -->
-				<div class="space-y-2">
-					<div class="text-sm text-gray-300 flex items-center justify-between">
-						<span>Beat Offset (max ±half a beat):</span>
-						<span class="text-xs text-gray-400">
-							{Math.round(beatOffset) > 0 ? '+' : ''}{Math.round(beatOffset)}ms
-						</span>
+				<div class="grid grid-cols-2 gap-4">
+					<!-- Playback Speed Control (Left) -->
+					<div class="space-y-3">
+						<div class="flex items-center justify-between mb-2">
+							<h3 class="text-sm font-semibold text-gray-300">Playback Speed</h3>
+							<div class="flex items-center gap-2">
+								<label class="text-xs text-gray-400" for="bpm">Song BPM:</label>
+								<input 
+									type="number" 
+									bind:value={bpm}
+									oninput={async () => await updateSessionBpm(true)}
+									class="bg-gray-700 text-white px-2 py-1 rounded w-14 text-xs"
+									min="60" 
+									max="200"
+								/>
+								<button 
+									class="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-xs transition-colors"
+									onclick={recalculateBpmFromSong}
+									disabled={isDetectingBpm}
+									title="Recalculate BPM from audio"
+								>
+									{isDetectingBpm ? 'Calculating...' : 'Recalc'}
+								</button>
+							</div>
+						</div>
+						<div class="flex items-center gap-2">
+							<label for="target-bpm" class="text-xs text-gray-400 w-20">Target BPM:</label>
+							<button 
+								class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
+								onclick={() => { targetBPM = Math.max(20, targetBPM - 1); updatePlaybackSpeed(); }}
+							>
+								-1
+							</button>
+							<input 
+								id="target-bpm"
+								type="number"
+								bind:value={targetBPM}
+								oninput={updatePlaybackSpeed}
+								class="bg-gray-700 text-white px-2 py-1 rounded w-16 text-sm text-center"
+								min="40"
+								max="300"
+							/>
+							<button 
+								class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
+								onclick={() => { targetBPM = Math.min(300, targetBPM + 1); updatePlaybackSpeed(); }}
+							>
+								+1
+							</button>
+							<button 
+								class="px-2 py-1 bg-amber-600 hover:bg-amber-700 rounded text-xs ml-2"
+								onclick={() => { targetBPM = bpm; updatePlaybackSpeed(); }}
+							>
+								Reset
+							</button>
+						</div>
+						<div class="text-xs text-gray-400">
+							Playing at: {Math.round((targetBPM / bpm) * 100)}% speed
+						</div>
 					</div>
-					<div class="relative">
-						<input 
-							type="range" 
-							value={sliderBeatOffset}
-							oninput={handleOffsetInput}
-							min={-(60 / bpm) * 500}
-							max={(60 / bpm) * 500}
-							step="5"
-							class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-						/>
-						<div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-0.5 h-4 bg-gray-500 pointer-events-none"></div>
-					</div>
-					<div class="flex justify-between text-xs text-gray-500">
-						<span>-{Math.round((60 / bpm) * 500)}ms</span>
-						<span>0</span>
-						<span>+{Math.round((60 / bpm) * 500)}ms</span>
+					
+					<!-- Beat Offset Control (Right) -->
+					<div class="space-y-3">
+						<div class="text-sm font-semibold text-gray-300 mb-2">Beat Offset</div>
+						<div class="space-y-2">
+							<div class="flex items-center justify-between">
+								<span class="text-xs text-gray-400">Alignment (max ±½ beat):</span>
+								<span class="text-xs text-gray-400">
+									{Math.round(beatOffset) > 0 ? '+' : ''}{Math.round(beatOffset)}ms
+								</span>
+							</div>
+							<div class="relative">
+								<input 
+									type="range" 
+									value={sliderBeatOffset}
+									oninput={handleOffsetInput}
+									min={-(60 / bpm) * 500}
+									max={(60 / bpm) * 500}
+									step="5"
+									class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+								/>
+								<div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-0.5 h-4 bg-gray-500 pointer-events-none"></div>
+							</div>
+							<div class="flex justify-between text-xs text-gray-500">
+								<span>-{Math.round((60 / bpm) * 500)}ms</span>
+								<span>0</span>
+								<span>+{Math.round((60 / bpm) * 500)}ms</span>
+							</div>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -916,6 +998,7 @@
 				<SvgWaveformDisplay
 					{currentTime}
 					{bpm}
+					{targetBPM}
 					{audioEngine}
 					{beatOffset}
 					beatsPerLine={currentSession.beatsPerLine}

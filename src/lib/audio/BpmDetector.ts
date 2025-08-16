@@ -42,7 +42,6 @@ export class BpmDetector {
 			this.currentBpm = roundedBpm;
 			this.onBpmChanged?.(roundedBpm);
 			this.onDetectionComplete?.();
-
 			return roundedBpm;
 		} catch (error) {
 			const err = error instanceof Error ? error : new Error('Unknown error during BPM detection');

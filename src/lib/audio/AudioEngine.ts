@@ -11,6 +11,9 @@ export class AudioEngine {
 	private isPlaying = false;
 	private updateLoopRunning = false;
 	
+	// Playback rate control
+	private playbackRate = 1.0;
+	
 	// Loop functionality
 	private loopEnabled = false;
 	private loopSegments: Array<{ start: number; end: number }> = [];
@@ -88,6 +91,7 @@ export class AudioEngine {
 		// Create new source node (they can only be used once)
 		this.sourceNode = this.audioContext.createBufferSource();
 		this.sourceNode.buffer = this.audioBuffer;
+		this.sourceNode.playbackRate.value = this.playbackRate;
 		this.sourceNode.connect(this.analyserNode!);
 
 		// Handle playback end
@@ -128,7 +132,10 @@ export class AudioEngine {
 			// Always start without duration limit - we'll handle looping manually in the time update loop
 			this.sourceNode.start(0, offset);
 			
-			this.startTime = this.audioContext.currentTime - offset;
+			// Adjust startTime calculation for playback rate
+			// We want: getCurrentTime() = (audioContext.currentTime - startTime) * playbackRate = offset
+			// So: startTime = audioContext.currentTime - (offset / playbackRate)
+			this.startTime = this.audioContext.currentTime - (offset / this.playbackRate);
 			this.isPlaying = true;
 		} catch (error) {
 			console.error('Failed to start audio source:', error);
@@ -144,10 +151,11 @@ export class AudioEngine {
 	 * Pause playback
 	 */
 	pause(): void {
-		if (!this.isPlaying || !this.sourceNode) return;
+		if (!this.isPlaying || !this.sourceNode || !this.audioContext) return;
 
-		// Calculate pause time BEFORE stopping to get accurate time
-		const currentPlaybackTime = this.getCurrentTime();
+		// Calculate pause time accounting for playback rate
+		const elapsedTime = this.audioContext.currentTime - this.startTime;
+		const currentPlaybackTime = elapsedTime * this.playbackRate;
 		
 		try {
 			this.sourceNode.stop();
@@ -210,7 +218,10 @@ export class AudioEngine {
 		if (!this.audioContext) return 0;
 
 		if (this.isPlaying) {
-			const currentTime = this.audioContext.currentTime - this.startTime;
+			// Calculate elapsed time since start
+			const elapsedTime = this.audioContext.currentTime - this.startTime;
+			// Adjust for playback rate to get actual position in the audio
+			const currentTime = elapsedTime * this.playbackRate;
 			// Ensure time is within valid bounds
 			return Math.max(0, Math.min(currentTime, this.getDuration()));
 		} else {
@@ -261,6 +272,43 @@ export class AudioEngine {
 		if (this.gainNode) {
 			this.gainNode.gain.value = Math.max(0, Math.min(1, volume));
 		}
+	}
+
+	/**
+	 * Set playback rate (0.25 to 2.0)
+	 */
+	setPlaybackRate(rate: number): void {
+		// Clamp rate to reasonable bounds
+		const newRate = Math.max(0.25, Math.min(2.0, rate));
+		
+		// If currently playing and rate is changing, we need to adjust startTime
+		if (this.sourceNode && this.isPlaying && this.audioContext && newRate !== this.playbackRate) {
+			// Calculate current position before rate change
+			const currentPosition = this.getCurrentTime();
+			
+			// Update the playback rate
+			const oldRate = this.playbackRate;
+			this.playbackRate = newRate;
+			this.sourceNode.playbackRate.value = this.playbackRate;
+			
+			// Recalculate startTime so getCurrentTime() returns the same position
+			// We want: currentPosition = (audioContext.currentTime - newStartTime) * newRate
+			// So: newStartTime = audioContext.currentTime - (currentPosition / newRate)
+			this.startTime = this.audioContext.currentTime - (currentPosition / this.playbackRate);
+		} else {
+			// Not playing, just update the rate
+			this.playbackRate = newRate;
+			if (this.sourceNode) {
+				this.sourceNode.playbackRate.value = this.playbackRate;
+			}
+		}
+	}
+	
+	/**
+	 * Get current playback rate
+	 */
+	getPlaybackRate(): number {
+		return this.playbackRate;
 	}
 
 	/**
@@ -360,6 +408,7 @@ export class AudioEngine {
 		// Create new source node and start at the new position
 		this.sourceNode = this.audioContext.createBufferSource();
 		this.sourceNode.buffer = this.audioBuffer;
+		this.sourceNode.playbackRate.value = this.playbackRate;
 		this.sourceNode.connect(this.analyserNode!);
 		
 		// Handle playback end for the new source
@@ -377,7 +426,8 @@ export class AudioEngine {
 		
 		try {
 			this.sourceNode.start(0, clampedTime);
-			this.startTime = this.audioContext.currentTime - clampedTime;
+			// Adjust startTime calculation for playback rate
+			this.startTime = this.audioContext.currentTime - (clampedTime / this.playbackRate);
 		} catch (error) {
 			console.error('Failed to jump to segment:', error);
 		}

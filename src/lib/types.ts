@@ -29,6 +29,7 @@ export interface TrackSession {
 	beatsPerLine: number; // Number of beats per chunk/line in spectrogram
 	beats: Beat[];
 	annotations: Annotation[]; // Array of annotations with absolute timing
+	targetBPM: number; // Target BPM for practice
 }
 
 export interface SpectrogramConfig {

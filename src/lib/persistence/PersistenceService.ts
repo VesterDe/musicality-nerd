@@ -76,14 +76,49 @@ export class PersistenceService {
 			mp3Blob: arrayBuffer,
 			filename: file.name,
 			created: new Date().toISOString(),
-			bpm: 120, // Default BPM
+			bpm: 0, // Default BPM
 			beatOffset: 0, // Default offset in milliseconds
 			manualBpm: false, // BPM not manually set initially
 			beatsPerLine: 4, // Default beats per line
 			beats: [],
-			annotations: [] // Initialize empty annotations array
+			annotations: [], // Initialize empty annotations array
+			targetBPM: 0 // Default target BPM (same as default BPM)
 		};
 
+		await this.saveSession(session);
+		return session;
+	}
+
+	/**
+	 * Update a session with new data
+	 */
+	async updateSession(session: TrackSession): Promise<TrackSession> {
+		// Load the existing session to preserve the mp3Blob
+		const existingSession = await this.loadSession(session.id);
+		if (!existingSession) {
+			throw new Error('Session not found');
+		}
+		
+		// Merge the new data with the existing session, keeping the original mp3Blob
+		const updatedSession = {
+			...session,
+			mp3Blob: existingSession.mp3Blob // Keep the original ArrayBuffer
+		};
+		
+		await this.saveSession(updatedSession);
+		return updatedSession;
+	}
+	
+	/**
+	 * Update target BPM for a session
+	 */
+	async updateSessionTargetBPM(sessionId: string, targetBPM: number): Promise<TrackSession> {
+		const session = await this.loadSession(sessionId);
+		if (!session) {
+			throw new Error('Session not found');
+		}
+		
+		session.targetBPM = targetBPM;
 		await this.saveSession(session);
 		return session;
 	}
