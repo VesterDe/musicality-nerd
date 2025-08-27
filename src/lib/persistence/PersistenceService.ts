@@ -384,6 +384,19 @@ export class PersistenceService {
 	}
 
 	/**
+	 * Clear all annotations from a session
+	 */
+	async clearAllAnnotations(sessionId: string): Promise<TrackSession> {
+		const session = await this.loadSession(sessionId);
+		if (!session) {
+			throw new Error('Session not found');
+		}
+		session.annotations = [];
+		await this.saveSession(session);
+		return session;
+	}
+	
+	/**
 	 * Get all annotations for a session within a time range
 	 */
 	async getAnnotationsInRange(sessionId: string, startTimeMs: number, endTimeMs: number): Promise<Annotation[]> {

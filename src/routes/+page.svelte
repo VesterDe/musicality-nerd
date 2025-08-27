@@ -6,6 +6,7 @@
 	import { PersistenceService } from '$lib/persistence/PersistenceService';
 	import SvgWaveformDisplay from '$lib/components/SvgWaveformDisplay.svelte';
 	import SongList from '$lib/components/SongList.svelte';
+	import AnnotationModePanel from '$lib/components/AnnotationModePanel.svelte';
 	import type { TrackSession, Annotation } from '$lib/types';
 
 	// Constants
@@ -38,6 +39,18 @@
 	let offsetUpdateTimeout: number | null = $state(null);
 	let isDraggingProgress = $state(false);
 	
+	// Annotation mode state
+	let isAnnotationMode = $state(false);
+	let activeAnnotationSession: { startTime: number; id: string } | null = $state(null);
+	let annotationCounter = $state(1);
+	let isAKeyPressed = $state(false); // Track physical key state
+	let annotationTemplate = $state({
+		name: 'Mark',
+		color: '#00ff00'
+	});
+	let previewAnnotation: Annotation | null = $state(null);
+	let previewTimeout: number | null = $state(null);
+	
 	onMount(async () => {
 		// Initialize services
 		audioEngine = new AudioEngine();
@@ -57,6 +70,9 @@
 
 		audioEngine.onEnded = () => {
 			isPlaying = false;
+			// Clear any active annotation session and key state when playback ends
+			activeAnnotationSession = null;
+			isAKeyPressed = false;
 		};
 
 		// Setup BPM detector event handlers
@@ -77,6 +93,7 @@
 		// Setup keyboard shortcuts (browser only)
 		if (typeof document !== 'undefined') {
 			document.addEventListener('keydown', handleKeydown);
+			document.addEventListener('keyup', handleKeyup);
 		}
 
 		// Try to load the last session
@@ -91,6 +108,7 @@
 	onDestroy(() => {
 		if (typeof document !== 'undefined') {
 			document.removeEventListener('keydown', handleKeydown);
+			document.removeEventListener('keyup', handleKeyup);
 		}
 		if (typeof window !== 'undefined') {
 			window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -351,6 +369,14 @@
 			if (isPlaying) {
 				audioEngine.pause();
 				isPlaying = false;
+				// Clear any active annotation session and key state when pausing
+				activeAnnotationSession = null;
+				isAKeyPressed = false;
+				previewAnnotation = null;
+				if (previewTimeout) {
+					clearTimeout(previewTimeout);
+					previewTimeout = null;
+				}
 			} else {
 				await audioEngine.play();
 				isPlaying = true;
@@ -367,7 +393,7 @@
 		}
 
 		// Prevent default for our shortcuts
-		if (event.code === 'Space' || event.code === 'ArrowLeft' || event.code === 'ArrowRight' || event.code === 'Enter') {
+		if (event.code === 'Space' || event.code === 'ArrowLeft' || event.code === 'ArrowRight' || event.code === 'Enter' || event.code === 'KeyM' || (event.code === 'KeyA' && isAnnotationMode)) {
 			event.preventDefault();
 		}
 
@@ -383,6 +409,152 @@
 			case 'ArrowRight':
 				await jumpToNextBoundary();
 				break;
+				
+			case 'KeyM':
+				// Toggle annotation mode
+				isAnnotationMode = !isAnnotationMode;
+				// Clear any active annotation session and key state when toggling off
+				if (!isAnnotationMode) {
+					activeAnnotationSession = null;
+					isAKeyPressed = false;
+					previewAnnotation = null;
+					if (previewTimeout) {
+						clearTimeout(previewTimeout);
+						previewTimeout = null;
+					}
+				}
+				break;
+				
+			case 'KeyA':
+				// Handle annotation creation (only in annotation mode and while playing)
+				// Check isAKeyPressed to ensure this is a fresh press, not a held key or repeat
+				if (isAnnotationMode && isPlaying && !isAKeyPressed) {
+					// Mark key as pressed
+					isAKeyPressed = true;
+					
+					// Create a unique session ID for this keypress
+					const sessionId = `${Date.now()}-${Math.random()}`;
+					const startTimeMs = currentTime * 1000; // Convert to milliseconds
+					activeAnnotationSession = {
+						startTime: startTimeMs,
+						id: sessionId
+					};
+					
+					// Set timeout to show preview annotation after 150ms
+					previewTimeout = setTimeout(() => {
+						if (isAKeyPressed && activeAnnotationSession) {
+							// Create preview annotation
+							const snappedStartTime = Math.round(startTimeMs / 25) * 25;
+							previewAnnotation = {
+								id: `preview-${sessionId}`,
+								startTimeMs: snappedStartTime,
+								endTimeMs: snappedStartTime, // Will be updated by effect
+								label: `${annotationTemplate.name} ${annotationCounter}`,
+								color: annotationTemplate.color,
+								isPoint: false
+							};
+						}
+					}, 150);
+				}
+				break;
+		}
+	}
+	
+	async function handleKeyup(event: KeyboardEvent) {
+		// Don't handle shortcuts when annotation modal is open
+		if (isAnnotationModalOpen) {
+			return;
+		}
+		
+		// Handle 'A' key release for annotation creation
+		if (event.code === 'KeyA' && isAnnotationMode) {
+			event.preventDefault();
+			
+			// Clear the preview timeout if it hasn't fired yet
+			if (previewTimeout) {
+				clearTimeout(previewTimeout);
+				previewTimeout = null;
+			}
+			
+			// Only process if the key was actually pressed (prevents stray keyup events)
+			if (isAKeyPressed && activeAnnotationSession) {
+				const endTime = currentTime * 1000; // Convert to milliseconds
+				const duration = endTime - activeAnnotationSession.startTime;
+				
+				// Determine if it's a point or range annotation
+				const isPoint = duration < 150; // Match the preview timeout duration
+				
+				// Use existing preview annotation name if it exists, otherwise create new counter
+				const annotationName = previewAnnotation 
+					? previewAnnotation.label 
+					: `${annotationTemplate.name} ${annotationCounter}`;
+				
+				// Always increment counter after using it
+				annotationCounter++;
+				
+				if (currentSession) {
+					// Use template color
+					const annotationColor = annotationTemplate.color;
+					
+					// For point annotations, start and end time are the same
+					const finalEndTime = isPoint ? activeAnnotationSession.startTime : endTime;
+					
+					// Snap times to 25ms increments (matching what persistence does)
+					const snappedStartTime = Math.round(activeAnnotationSession.startTime / 25) * 25;
+					const snappedEndTime = Math.round(finalEndTime / 25) * 25;
+					
+					// Create the final annotation object
+					const newAnnotation: Annotation = {
+						id: previewAnnotation ? previewAnnotation.id.replace('preview-', 'temp-') : `temp-${Date.now()}-${Math.random()}`,
+						startTimeMs: snappedStartTime,
+						endTimeMs: snappedEndTime,
+						label: annotationName,
+						color: annotationColor,
+						isPoint
+					};
+					
+					// Update UI immediately (optimistic update)
+					if (!currentSession.annotations) {
+						currentSession.annotations = [];
+					}
+					currentSession.annotations = [...currentSession.annotations, newAnnotation];
+					
+					// Save to IndexedDB in the background (don't await)
+					persistenceService.addAnnotation(
+						currentSession.id,
+						activeAnnotationSession.startTime,
+						finalEndTime,
+						annotationName,
+						annotationColor,
+						isPoint
+					).then(result => {
+						// Replace temporary annotation with the saved one
+						const tempIndex = currentSession!.annotations.findIndex(a => a.id === newAnnotation.id);
+						if (tempIndex !== -1) {
+							const savedAnnotation = result.session.annotations.find(a => 
+								a.label === annotationName && 
+								Math.abs(a.startTimeMs - snappedStartTime) < 50
+							);
+							if (savedAnnotation) {
+								currentSession!.annotations[tempIndex] = savedAnnotation;
+								currentSession = currentSession; // Trigger reactivity
+							}
+						}
+					}).catch(error => {
+						console.error('Failed to save annotation:', error);
+						// Remove the failed annotation from UI
+						currentSession!.annotations = currentSession!.annotations.filter(a => a.id !== newAnnotation.id);
+					});
+				}
+				
+				// Clear the active session and preview
+				activeAnnotationSession = null;
+				previewAnnotation = null;
+			}
+			
+			// Always mark key as released and clear preview when we get a keyup event for 'A'
+			isAKeyPressed = false;
+			previewAnnotation = null;
 		}
 	}
 
@@ -479,6 +651,19 @@
 			currentSession = updatedSession;
 		} catch (error) {
 			console.error('Failed to delete annotation:', error);
+		}
+	}
+	
+	async function clearAllAnnotations() {
+		if (!currentSession) return;
+		
+		try {
+			const updatedSession = await persistenceService.clearAllAnnotations(currentSession.id);
+			currentSession = updatedSession;
+			// Reset annotation counter when clearing all
+			annotationCounter = 1;
+		} catch (error) {
+			console.error('Failed to clear all annotations:', error);
 		}
 	}
 
@@ -775,6 +960,9 @@
 
 		audioEngine.onEnded = () => {
 			isPlaying = false;
+			// Clear any active annotation session and key state when playback ends
+			activeAnnotationSession = null;
+			isAKeyPressed = false;
 		};
 	}
 
@@ -796,6 +984,15 @@
           scrollThrottle = false;
         });
       }
+    }
+  })
+  
+  // Effect to update preview annotation end time in real-time
+  $effect(() => {
+    if (previewAnnotation && isPlaying && isAKeyPressed) {
+      const currentTimeMs = currentTime * 1000;
+      const snappedEndTime = Math.round(currentTimeMs / 25) * 25;
+      previewAnnotation.endTimeMs = snappedEndTime;
     }
   })
 </script>
@@ -932,14 +1129,12 @@
 				</div>
 			</div>
 
-
-
 			<!-- Transport Controls -->
 			<div class="bg-gray-800 rounded-lg p-4 sticky top-0 z-10 shadow-lg border-b border-gray-700 backdrop-blur-sm">
 				<div class="flex items-center space-x-4">
 					<button 
 						class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors"
-            onclick={togglePlayback}
+						onclick={togglePlayback}
 					>
 						{isPlaying ? '⏸️' : '▶️'}
 						{isPlaying ? 'Pause' : 'Play'}
@@ -969,30 +1164,67 @@
 						Beat: {currentBeatIndex >= 0 ? currentBeatIndex + 1 : '-'}
 					</div>
 					
-					<div class="flex items-center space-x-2">
-						<label class="text-sm text-gray-300 flex items-center space-x-3 cursor-pointer select-none">
-							<span class="font-medium">Auto-follow:</span>
-							<input 
-								type="checkbox" 
-								bind:checked={autoFollow}
-								class="sr-only"
-							/>
-							<div class="relative inline-block">
-								<div class="w-11 h-6 bg-gray-600 rounded-full shadow-inner transition-all duration-200 ease-in-out {autoFollow ? 'bg-blue-600 shadow-blue-500/25' : 'bg-gray-600'}"></div>
-								<div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md transform transition-all duration-200 ease-in-out {autoFollow ? 'translate-x-5 bg-blue-50' : 'translate-x-0'}"></div>
-								{#if autoFollow}
-									<div class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full flex items-center justify-center">
-										<div class="w-2 h-2 bg-blue-600 rounded-full opacity-75"></div>
-									</div>
-								{/if}
-							</div>
-							<span class="text-xs {autoFollow ? 'text-blue-400' : 'text-gray-500'} transition-colors duration-200">
-								{autoFollow ? 'ON' : 'OFF'}
-							</span>
-						</label>
-					</div>
+					<label class="text-sm text-gray-300 flex items-center space-x-3 cursor-pointer select-none">
+						<span class="font-medium">Auto-follow:</span>
+						<input 
+							type="checkbox" 
+							bind:checked={autoFollow}
+							class="sr-only"
+						/>
+						<div class="relative inline-block">
+							<div class="w-11 h-6 bg-gray-600 rounded-full shadow-inner transition-all duration-200 ease-in-out {autoFollow ? 'bg-blue-600 shadow-blue-500/25' : 'bg-gray-600'}"></div>
+							<div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md transform transition-all duration-200 ease-in-out {autoFollow ? 'translate-x-5 bg-blue-50' : 'translate-x-0'}"></div>
+							{#if autoFollow}
+								<div class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full flex items-center justify-center">
+									<div class="w-2 h-2 bg-blue-600 rounded-full opacity-75"></div>
+								</div>
+							{/if}
+						</div>
+						<span class="text-xs {autoFollow ? 'text-blue-400' : 'text-gray-500'} transition-colors duration-200">
+							{autoFollow ? 'ON' : 'OFF'}
+						</span>
+					</label>
+					
+					{#if currentSession?.annotations && currentSession.annotations.length > 0}
+						<button
+							class="bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded-lg text-xs transition-colors"
+							onclick={async () => {
+								if (confirm('Are you sure you want to clear all annotations?')) {
+									await clearAllAnnotations();
+								}
+							}}
+							title="Clear all annotations"
+						>
+							Clear All ({currentSession.annotations.length})
+						</button>
+					{/if}
 				</div>
 			</div>
+
+			<!-- Annotation Mode Panel -->
+			{#if isAnnotationMode}
+				<div class="bg-gray-800 rounded-lg p-4">
+					<AnnotationModePanel
+						{isAnnotationMode}
+						onToggle={() => isAnnotationMode = !isAnnotationMode}
+						{annotationTemplate}
+						onTemplateChange={(template) => annotationTemplate = template}
+						annotationCount={annotationCounter}
+						horizontal={true}
+					/>
+				</div>
+			{:else}
+				<div class="bg-gray-800 rounded-lg p-4">
+					<AnnotationModePanel
+						{isAnnotationMode}
+						onToggle={() => isAnnotationMode = !isAnnotationMode}
+						{annotationTemplate}
+						onTemplateChange={(template) => annotationTemplate = template}
+						annotationCount={annotationCounter}
+						horizontal={false}
+					/>
+				</div>
+			{/if}
 
 			<!-- Spectrogram Display -->
 			{#if currentSession && !isSessionInitializing}
@@ -1008,7 +1240,9 @@
 					{loopingChunkIndices}
 					onSeek={(time) => audioEngine.seekTo(time)}
 					onBeatsPerLineChange={updateBeatsPerLine}
-					annotations={currentSession.annotations || []}
+					annotations={previewAnnotation 
+						? [...(currentSession.annotations || []), previewAnnotation]
+						: (currentSession.annotations || [])}
 					onAnnotationCreated={handleAnnotationCreatedFromCanvas}
 					onAnnotationUpdated={handleAnnotationUpdated}
 					onAnnotationDeleted={handleAnnotationDeleted}
