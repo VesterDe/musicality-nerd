@@ -189,7 +189,6 @@ export function generateWaveformBars(
 	const { startSample, endSample } = bounds;
 	const bars = downsamplePeaks(peaksData, startSample, endSample, targetBars);
 	const barWidth = width / targetBars;
-	const centerY = height / 2;
 	
 	return bars.map((bar, index) => {
 		const amplitude = Math.max(Math.abs(bar.min), Math.abs(bar.max));
@@ -218,7 +217,6 @@ function generatePreSongChunkBars(
 	chunkDuration: number
 ): Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> {
 	const barWidth = width / targetBars;
-	const centerY = height / 2;
 	const offsetInSeconds = Math.abs(beatOffset) / 1000;
 
 	if (beatOffset > 0) {
