@@ -193,11 +193,11 @@ export function generateWaveformBars(
 	
 	return bars.map((bar, index) => {
 		const amplitude = Math.max(Math.abs(bar.min), Math.abs(bar.max));
-		const barHeight = amplitude * centerY * 1.5; // 150% of available height
+		const barHeight = amplitude * height; // 80% of available height for some headroom
 		
 		return {
 			x: index * barWidth,
-			y: centerY - barHeight / 2,
+			y: height - barHeight, // Position from bottom
 			width: Math.max(1, barWidth - 1), // Small gap between bars
 			height: Math.max(1, barHeight),
 			isEmpty: false // Regular chunks are never empty
@@ -235,11 +235,11 @@ function generatePreSongChunkBars(
 			
 			songPeaks.forEach((bar, index) => {
 				const amplitude = Math.max(Math.abs(bar.min), Math.abs(bar.max));
-				const barHeight = amplitude * centerY * 1.5;
+				const barHeight = amplitude * height; // 80% of available height for some headroom
 				
 				bars.push({
 					x: (songStartBar + index) * barWidth,
-					y: centerY - barHeight / 2,
+					y: height - barHeight, // Position from bottom
 					width: Math.max(1, barWidth - 1),
 					height: Math.max(1, barHeight),
 					isEmpty: false
@@ -262,11 +262,11 @@ function generatePreSongChunkBars(
 			
 			songPeaks.forEach((bar, index) => {
 				const amplitude = Math.max(Math.abs(bar.min), Math.abs(bar.max));
-				const barHeight = amplitude * centerY * 1.5;
+				const barHeight = amplitude * height; // 80% of available height for some headroom
 				
 				bars.push({
 					x: (songStartBar + index) * barWidth,
-					y: centerY - barHeight / 2,
+					y: height - barHeight, // Position from bottom
 					width: Math.max(1, barWidth - 1),
 					height: Math.max(1, barHeight),
 					isEmpty: false

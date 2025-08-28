@@ -55,8 +55,8 @@
 	}
 </script>
 
-{#if horizontal && isAnnotationMode}
-	<!-- Horizontal layout when annotation mode is ON -->
+{#if horizontal}
+	<!-- Horizontal layout -->
 	<div class="flex items-center gap-6">
 		<div class="flex items-center gap-3">
 			<h3 class="text-sm font-semibold text-gray-300">Annotation Mode</h3>
@@ -84,13 +84,13 @@
 
 		<div class="h-8 w-px bg-gray-700"></div>
 
-		<div class="text-xs text-green-400">
+		<div class="text-xs {isAnnotationMode ? 'text-green-400' : 'text-gray-500 opacity-60'}">
 			Press 'A' while playing to annotate • 'M' to toggle mode
 		</div>
 
 		<div class="h-8 w-px bg-gray-700"></div>
 
-		<div class="flex items-center gap-3">
+		<div class="flex items-center gap-3 {isAnnotationMode ? '' : 'opacity-50'}">
 			<label class="flex items-center gap-2">
 				<span class="text-xs text-gray-400">Name Pattern:</span>
 				<input
@@ -98,7 +98,8 @@
 					value={annotationTemplate.name}
 					oninput={handleNameChange}
 					placeholder="e.g., Mark, Section, Beat"
-					class="bg-gray-700 text-white text-sm px-3 py-1 rounded border border-gray-600 focus:border-green-500 focus:outline-none w-32"
+					disabled={!isAnnotationMode}
+					class="bg-gray-700 text-white text-sm px-3 py-1 rounded border border-gray-600 {isAnnotationMode ? 'focus:border-green-500' : 'cursor-not-allowed'} focus:outline-none w-32"
 				/>
 				<span class="text-xs text-gray-500">
 					Next: {annotationTemplate.name} {annotationCount}
@@ -108,31 +109,34 @@
 
 		<div class="h-8 w-px bg-gray-700"></div>
 
-		<div class="flex items-center gap-3">
+		<div class="flex items-center gap-3 {isAnnotationMode ? '' : 'opacity-50'}">
 			<span class="text-xs text-gray-400">Color:</span>
 			<div class="flex items-center space-x-2">
 				<div class="flex space-x-1">
 					{#each presetColors as color}
 						<button
-							class="w-6 h-6 rounded border-2 transition-all {annotationTemplate.color === color ? 'border-white scale-110' : 'border-gray-600 hover:border-gray-400'}"
+							class="w-6 h-6 rounded border-2 transition-all {annotationTemplate.color === color ? 'border-white scale-110' : 'border-gray-600 hover:border-gray-400'} {isAnnotationMode ? '' : 'cursor-not-allowed'}"
 							style="background-color: {color}"
-							onclick={() => handleColorChange(color)}
+							onclick={() => isAnnotationMode && handleColorChange(color)}
+							disabled={!isAnnotationMode}
 							title={color}
-						/>
+							aria-label="Select color {color}"
+						></button>
 					{/each}
 				</div>
 				<input
 					type="color"
 					value={annotationTemplate.color}
 					oninput={handleCustomColorChange}
-					class="w-8 h-6 bg-gray-700 border border-gray-600 rounded cursor-pointer"
+					disabled={!isAnnotationMode}
+					class="w-8 h-6 bg-gray-700 border border-gray-600 rounded {isAnnotationMode ? 'cursor-pointer' : 'cursor-not-allowed'}"
 					title="Custom color"
 				/>
 			</div>
 		</div>
 	</div>
 {:else}
-	<!-- Vertical/compact layout when annotation mode is OFF or not horizontal -->
+	<!-- Vertical/compact layout -->
 	<div class="{horizontal ? '' : 'bg-gray-800 rounded-lg p-4'} space-y-3">
 		<div class="flex items-center justify-between">
 			<h3 class="text-sm font-semibold text-gray-300">Annotation Mode</h3>
@@ -158,9 +162,9 @@
 			</label>
 		</div>
 
-		{#if isAnnotationMode && !horizontal}
-			<div class="space-y-3 pt-2 border-t border-gray-700">
-				<div class="text-xs text-green-400">
+		{#if !horizontal}
+			<div class="space-y-3 pt-2 border-t border-gray-700 {isAnnotationMode ? '' : 'opacity-50'}">
+				<div class="text-xs {isAnnotationMode ? 'text-green-400' : 'text-gray-500'}">
 					Press 'A' while playing to annotate • 'M' to toggle mode
 				</div>
 
@@ -172,7 +176,8 @@
 							value={annotationTemplate.name}
 							oninput={handleNameChange}
 							placeholder="e.g., Mark, Section, Beat"
-							class="mt-1 w-full bg-gray-700 text-white text-sm px-3 py-1.5 rounded border border-gray-600 focus:border-green-500 focus:outline-none"
+							disabled={!isAnnotationMode}
+							class="mt-1 w-full bg-gray-700 text-white text-sm px-3 py-1.5 rounded border border-gray-600 {isAnnotationMode ? 'focus:border-green-500' : 'cursor-not-allowed'} focus:outline-none"
 						/>
 						<span class="text-xs text-gray-500">
 							Next: {annotationTemplate.name} {annotationCount}
@@ -185,9 +190,10 @@
 							<div class="flex space-x-1">
 								{#each presetColors as color}
 									<button
-										class="w-6 h-6 rounded border-2 transition-all {annotationTemplate.color === color ? 'border-white scale-110' : 'border-gray-600 hover:border-gray-400'}"
+										class="w-6 h-6 rounded border-2 transition-all {annotationTemplate.color === color ? 'border-white scale-110' : 'border-gray-600 hover:border-gray-400'} {isAnnotationMode ? '' : 'cursor-not-allowed'}"
 										style="background-color: {color}"
-										onclick={() => handleColorChange(color)}
+										onclick={() => isAnnotationMode && handleColorChange(color)}
+										disabled={!isAnnotationMode}
 										title={color}
 									/>
 								{/each}
@@ -196,7 +202,8 @@
 								type="color"
 								value={annotationTemplate.color}
 								oninput={handleCustomColorChange}
-								class="w-8 h-6 bg-gray-700 border border-gray-600 rounded cursor-pointer"
+								disabled={!isAnnotationMode}
+								class="w-8 h-6 bg-gray-700 border border-gray-600 rounded {isAnnotationMode ? 'cursor-pointer' : 'cursor-not-allowed'}"
 								title="Custom color"
 							/>
 						</div>

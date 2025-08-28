@@ -1202,29 +1202,16 @@
 			</div>
 
 			<!-- Annotation Mode Panel -->
-			{#if isAnnotationMode}
-				<div class="bg-gray-800 rounded-lg p-4">
-					<AnnotationModePanel
-						{isAnnotationMode}
-						onToggle={() => isAnnotationMode = !isAnnotationMode}
-						{annotationTemplate}
-						onTemplateChange={(template) => annotationTemplate = template}
-						annotationCount={annotationCounter}
-						horizontal={true}
-					/>
-				</div>
-			{:else}
-				<div class="bg-gray-800 rounded-lg p-4">
-					<AnnotationModePanel
-						{isAnnotationMode}
-						onToggle={() => isAnnotationMode = !isAnnotationMode}
-						{annotationTemplate}
-						onTemplateChange={(template) => annotationTemplate = template}
-						annotationCount={annotationCounter}
-						horizontal={false}
-					/>
-				</div>
-			{/if}
+			<div class="bg-gray-800 rounded-lg p-4">
+				<AnnotationModePanel
+					{isAnnotationMode}
+					onToggle={() => isAnnotationMode = !isAnnotationMode}
+					{annotationTemplate}
+					onTemplateChange={(template) => annotationTemplate = template}
+					annotationCount={annotationCounter}
+					horizontal={true}
+				/>
+			</div>
 
 			<!-- Spectrogram Display -->
 			{#if currentSession && !isSessionInitializing}
