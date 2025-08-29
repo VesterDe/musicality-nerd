@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import AnnotationPopup from './AnnotationPopup.svelte';
-	import HtmlAnnotation from './HtmlAnnotation.svelte';
+	import SingleLineWaveformDisplay from './SingleLineWaveformDisplay.svelte';
 	import type { Annotation } from '../types';
 	import type { AudioEngine } from '../audio/AudioEngine';
 	import { AudioExportService } from '../audio/AudioExportService';
@@ -60,6 +61,11 @@
 	let peaksData: Float32Array | null = $state(null);
 	let audioSampleRate = $state(44100);
 	let audioDuration = $state(0);
+	
+	// Virtualization state
+	let visibleChunkIndices = $state(new Set<number>());
+	let chunkObserver: IntersectionObserver | null = $state(null);
+	const BUFFER_CHUNKS = 2; // Number of chunks to render outside viewport
 
 	// Export service
 	let exportService = $state(new AudioExportService());
@@ -111,70 +117,103 @@
 		beatOffset,
 		chunkDuration
 	}));
-	// Heavy computation: raw chunk data without annotations
-	const rawChunkData = $derived.by(() => {
-		if (!isInitialized || !peaksData || totalChunks === 0) return [];
-    console.log('rawChunkData')
+	// Compute all chunk metadata first (lightweight)
+	const chunkMetadata = $derived.by(() => {
+		if (!isInitialized || totalChunks === 0) return [];
 		
-		const chunks = [];
+		const metadata = [];
 		for (let chunkIndex = beatOffset !== 0 ? -1 : 0; chunkIndex < totalChunks; chunkIndex++) {
 			if (chunkIndex === -1 && beatOffset === 0) continue;
 			
 			const bounds = calculateChunkBounds(chunkIndex, waveformConfig);
 			const isSpecialChunk = chunkIndex === -1 && beatOffset !== 0;
 			
-			// Generate waveform data (expensive operations)
-				let waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
-				let beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }> = [];
-			let headerInfo = '';
-			
-			if (isSpecialChunk) {
-				// Special chunk -1 handling
-				const offsetInSeconds = Math.abs(beatOffset) / 1000;
-				headerInfo = `Pre-song (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${offsetInSeconds.toFixed(3)}s)`;
-				
-				// Generate waveform bars for special chunk (includes empty and song bars)
-				waveformBars = generateWaveformBars(
-					peaksData, 
-					bounds, 
-					waveformConfig.width, 
-					waveformConfig.height, 
-					300, 
-					chunkIndex, 
-					beatOffset, 
-					chunkDuration
-				);
-			} else {
-				// Generate beat grid
-				beatLines = generateBeatGrid(beatGrouping, waveformConfig.width, waveformConfig.height);
-				
-				// Generate waveform bars
-				waveformBars = generateWaveformBars(
-					peaksData, 
-					bounds, 
-					waveformConfig.width, 
-					waveformConfig.height, 
-					300, 
-					chunkIndex, 
-					beatOffset, 
-					chunkDuration
-				);
-				
-				const startTime = bounds.startTimeMs / 1000;
-				const endTime = bounds.endTimeMs / 1000;
-        const startingBeat = chunkIndex * beatGrouping + 1;
-				headerInfo = `Chunk ${chunkIndex + 1} (${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s) Beats ${startingBeat} - ${startingBeat + beatGrouping - 1}`;
-			}
-
-			chunks.push({
+			metadata.push({
 				index: chunkIndex,
 				bounds,
 				isSpecialChunk,
+				startTime: bounds.startTimeMs / 1000,
+				endTime: bounds.endTimeMs / 1000
+			});
+		}
+		return metadata;
+	});
+	
+	// Heavy computation: generate waveform data for visible chunks only
+	const rawChunkData = $derived.by(() => {
+		if (!peaksData || chunkMetadata.length === 0) return [];
+		
+		const chunks = [];
+		for (const meta of chunkMetadata) {
+			// Check if chunk should be rendered (visible or in buffer zone)
+			const shouldRenderContent = isChunkInRenderRange(meta.index);
+			
+			// Generate waveform data only for visible chunks
+			let waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
+			let beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }> = [];
+			let headerInfo = '';
+			
+			if (shouldRenderContent) {
+				if (meta.isSpecialChunk) {
+					// Special chunk -1 handling
+					const offsetInSeconds = Math.abs(beatOffset) / 1000;
+					headerInfo = `Pre-song (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${offsetInSeconds.toFixed(3)}s)`;
+					
+					// Generate waveform bars for special chunk (includes empty and song bars)
+					waveformBars = generateWaveformBars(
+						peaksData, 
+						meta.bounds, 
+						waveformConfig.width, 
+						waveformConfig.height, 
+						300, 
+						meta.index, 
+						beatOffset, 
+						chunkDuration
+					);
+				} else {
+					// Generate beat grid
+					beatLines = generateBeatGrid(beatGrouping, waveformConfig.width, waveformConfig.height);
+					
+					// Generate waveform bars
+					waveformBars = generateWaveformBars(
+						peaksData, 
+						meta.bounds, 
+						waveformConfig.width, 
+						waveformConfig.height, 
+						300, 
+						meta.index, 
+						beatOffset, 
+						chunkDuration
+					);
+					
+					const startTime = meta.bounds.startTimeMs / 1000;
+					const endTime = meta.bounds.endTimeMs / 1000;
+				const startingBeat = meta.index * beatGrouping + 1;
+					headerInfo = `Chunk ${meta.index + 1} (${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s) Beats ${startingBeat} - ${startingBeat + beatGrouping - 1}`;
+				}
+			} else {
+				// For non-visible chunks, create minimal header info
+				if (meta.isSpecialChunk) {
+					const offsetInSeconds = Math.abs(beatOffset) / 1000;
+					headerInfo = `Pre-song (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${offsetInSeconds.toFixed(3)}s)`;
+				} else {
+					const startTime = meta.bounds.startTimeMs / 1000;
+					const endTime = meta.bounds.endTimeMs / 1000;
+					const startingBeat = meta.index * beatGrouping + 1;
+					headerInfo = `Chunk ${meta.index + 1} (${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s) Beats ${startingBeat} - ${startingBeat + beatGrouping - 1}`;
+				}
+			}
+
+			chunks.push({
+				index: meta.index,
+				bounds: meta.bounds,
+				isSpecialChunk: meta.isSpecialChunk,
 				waveformBars,
 				beatLines,
 				headerInfo,
-				startTime: bounds.startTimeMs / 1000,
-				endTime: bounds.endTimeMs / 1000
+				startTime: meta.startTime,
+				endTime: meta.endTime,
+				shouldRenderContent
 			});
 		}
 		
@@ -250,17 +289,20 @@
 	// Lightweight computation: combine raw data with annotations and dynamic state
 	const chunkData = $derived.by(() => {
 		if (rawChunkData.length === 0) return [];
-    console.log('chunkData')
-
 		
 		return rawChunkData.map(rawChunk => {
-			// Calculate chunk annotations (lightweight)
-			const chunkAnnotations = annotations.filter(annotation => 
-				annotation.startTimeMs < rawChunk.bounds.endTimeMs && annotation.endTimeMs > rawChunk.bounds.startTimeMs
-			);
+			// Only process annotations for visible chunks
+			let stackedAnnotations: Array<Annotation & { stackPosition: number }> = [];
 			
-			// Calculate stacking positions for overlapping annotations
-			const stackedAnnotations = calculateAnnotationStacks(chunkAnnotations, rawChunk.bounds);
+			if (rawChunk.shouldRenderContent) {
+				// Calculate chunk annotations (lightweight)
+				const chunkAnnotations = annotations.filter(annotation => 
+					annotation.startTimeMs < rawChunk.bounds.endTimeMs && annotation.endTimeMs > rawChunk.bounds.startTimeMs
+				);
+				
+				// Calculate stacking positions for overlapping annotations
+				stackedAnnotations = calculateAnnotationStacks(chunkAnnotations, rawChunk.bounds);
+			}
 			
 			// Calculate placeholder visibility for this chunk (lightweight)
 			const placeholderVisible = showPlaceholder && 
@@ -288,11 +330,112 @@
 		});
 	});
 
+	// Helper function to check if chunk should be rendered
+	function isChunkInRenderRange(chunkIndex: number): boolean {
+		if (visibleChunkIndices.size === 0) {
+			// Initially render first few chunks
+			return chunkIndex >= -1 && chunkIndex < 3;
+		}
+		
+		// Check if chunk is visible or in buffer zone
+		const minVisible = Math.min(...visibleChunkIndices);
+		const maxVisible = Math.max(...visibleChunkIndices);
+		
+		return chunkIndex >= minVisible - BUFFER_CHUNKS && 
+		       chunkIndex <= maxVisible + BUFFER_CHUNKS;
+	}
+	
+	// Setup Intersection Observer for viewport detection
+	function setupIntersectionObserver() {
+		if (typeof window === 'undefined' || !waveformContainer) return;
+		
+		// Clean up existing observer
+		if (chunkObserver) {
+			chunkObserver.disconnect();
+		}
+		
+		chunkObserver = new IntersectionObserver(
+			(entries) => {
+				const newVisibleIndices = new Set(visibleChunkIndices);
+				
+				entries.forEach(entry => {
+					const chunkElement = entry.target as HTMLElement;
+					const chunkIndex = parseInt(chunkElement.dataset.chunkIndex || '0');
+					
+					if (entry.isIntersecting) {
+						newVisibleIndices.add(chunkIndex);
+					} else {
+						newVisibleIndices.delete(chunkIndex);
+					}
+				});
+				
+				visibleChunkIndices = newVisibleIndices;
+			},
+			{
+				root: null,
+				rootMargin: '200px 0px', // 200px vertical buffer
+				threshold: 0
+			}
+		);
+	}
+	
 	// Initialize audio data when AudioEngine changes
 	$effect(() => {
 		if (audioEngine) {
 			initializeFromAudioEngine();
 		}
+	});
+	
+	// Setup observer after component mounts
+	onMount(() => {
+		// Wait for initial render
+		const initTimer = setTimeout(() => {
+			if (waveformContainer) {
+				setupIntersectionObserver();
+				
+				// Use MutationObserver to watch for new chunk elements
+				const mutationObserver = new MutationObserver(() => {
+					if (chunkObserver && waveformContainer) {
+						const chunkElements = waveformContainer.querySelectorAll('[data-chunk-index]:not([data-observed])');
+						chunkElements.forEach(element => {
+							chunkObserver.observe(element);
+							element.setAttribute('data-observed', 'true');
+						});
+					}
+				});
+				
+				// Start observing for DOM changes
+				mutationObserver.observe(waveformContainer, {
+					childList: true,
+					subtree: true
+				});
+				
+				// Observe initial elements
+				if (chunkObserver) {
+					const chunkElements = waveformContainer.querySelectorAll('[data-chunk-index]');
+					chunkElements.forEach(element => {
+						chunkObserver.observe(element);
+						element.setAttribute('data-observed', 'true');
+					});
+				}
+				
+				// Cleanup function
+				return () => {
+					clearTimeout(initTimer);
+					mutationObserver.disconnect();
+					if (chunkObserver) {
+						chunkObserver.disconnect();
+					}
+				};
+			}
+		}, 100);
+		
+		return () => {
+			clearTimeout(initTimer);
+			if (chunkObserver) {
+				chunkObserver.disconnect();
+			}
+		};
 	});
 
 	// Update beat grouping when beatsPerLine changes
@@ -827,223 +970,57 @@
 	<div bind:this={waveformContainer} class="relative">
 		<div class="space-y-2">
 			{#each chunkData as chunk (chunk.index)}
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="relative mb-0 bg-gray-900 rounded-lg overflow-hidden {playheadInfo && playheadInfo.chunkIndex === chunk.index ? 'current-chunk' : ''}" data-chunk-index={chunk.index}>
-					<!-- Chunk Header -->
-					<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between">
-						<div>{chunk.headerInfo}</div>
-						<div class="flex items-center space-x-2">
-							<!-- Show group download button only on the first looping chunk -->
-							{#if loopingChunkIndices.size > 1 && chunk.isLooping && Array.from(loopingChunkIndices).sort((a, b) => a - b)[0] === chunk.index}
-								<button
-									class="px-2 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded text-xs transition-colors"
-									onclick={handleGroupExport}
-								>
-									📦 ({loopingChunkIndices.size})
-								</button>
-							{/if}
-							<button
-								class="px-2 py-1 rounded text-xs transition-colors {exportingChunks.has(chunk.index) ? 'bg-gray-600 text-gray-400' : 'bg-green-600 hover:bg-green-700 text-white'}"
-								onclick={() => handleChunkExport(chunk.index, chunk.startTime, chunk.endTime)}
-								disabled={exportingChunks.has(chunk.index)}
-							>
-								{exportingChunks.has(chunk.index) ? '⏳' : '📥'}
-							</button>
-							<button
-								class="px-2 py-1 rounded text-xs transition-colors {chunk.isLooping ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}"
-								onclick={() => toggleChunkLoop(chunk.index, chunk.startTime, chunk.endTime)}
-							>
-								{chunk.isLooping ? '⏹️' : '🔁'}
-							</button>
-						</div>
-					</div>
-
-					<!-- SVG Waveform -->
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<svg
-						width={waveformConfig.width}
-						height={waveformConfig.height}
-						viewBox="0 0 {waveformConfig.width} {waveformConfig.height}"
-						class="block cursor-crosshair"
-						onmousedown={(event) => handleWaveformMouseDown(event, chunk.index, chunk.bounds)}
-						style:touch-action="none"
-						ontouchstart={(event) => handleWaveformTouchStart(event, chunk.index, chunk.bounds)}
+				{#if chunk.shouldRenderContent}
+					<!-- Render full chunk with content -->
+					<SingleLineWaveformDisplay
+						chunkIndex={chunk.index}
+						bounds={chunk.bounds}
+						isSpecialChunk={chunk.isSpecialChunk}
+						waveformBars={chunk.waveformBars}
+						beatLines={chunk.beatLines}
+						headerInfo={chunk.headerInfo}
+						startTime={chunk.startTime}
+						endTime={chunk.endTime}
+						annotations={chunk.annotations}
+						placeholderAnnotation={chunk.placeholderAnnotation}
+						isLooping={chunk.isLooping}
+						{activeBeatLines}
+						playheadVisible={playheadInfo?.chunkIndex === chunk.index}
+						playheadX={playheadInfo?.chunkIndex === chunk.index ? playheadInfo.x : 0}
+						{waveformConfig}
+						{chunkDuration}
+						{beatOffset}
+						exportingChunk={exportingChunks.has(chunk.index)}
+						onWaveformMouseDown={handleWaveformMouseDown}
+						onWaveformTouchStart={handleWaveformTouchStart}
+						onChunkExport={handleChunkExport}
+						onToggleChunkLoop={toggleChunkLoop}
+						onEditAnnotation={handleEditAnnotation}
+						onDeleteAnnotation={handleDeleteAnnotation}
+						onMoveAnnotation={handleMoveAnnotation}
+						onDuplicateAnnotation={handleDuplicateAnnotation}
+						onGroupExport={handleGroupExport}
+						showGroupExportButton={loopingChunkIndices.size > 1 && chunk.isLooping && Array.from(loopingChunkIndices).sort((a, b) => a - b)[0] === chunk.index}
+						loopingChunkCount={loopingChunkIndices.size}
+					/>
+				{:else}
+					<!-- Render placeholder for non-visible chunk -->
+					<div 
+						class="relative mb-0 bg-gray-900 rounded-lg overflow-hidden" 
+						data-chunk-index={chunk.index}
+						style="height: {waveformConfig.height + 40}px"
 					>
-						{#if chunk.isSpecialChunk}
-							<!-- Special chunk -1 with diagonal hatching pattern -->
-							<defs>
-								<pattern id="diagonalHatch-{chunk.index}" patternUnits="userSpaceOnUse" width="12" height="12">
-									<rect width="12" height="12" fill="transparent"/>
-									<path d="M0,12 L12,0" stroke="rgba(156, 163, 175, 0.4)" stroke-width="1"/>
-									<path d="M-3,3 L3,-3" stroke="rgba(156, 163, 175, 0.4)" stroke-width="1"/>
-									<path d="M9,15 L15,9" stroke="rgba(156, 163, 175, 0.4)" stroke-width="1"/>
-								</pattern>
-							</defs>
-							
-							<!-- Empty space area with diagonal pattern -->
-							{@const offsetInSeconds = Math.abs(beatOffset) / 1000}
-							{@const emptyAreaWidth = beatOffset > 0 
-								? (offsetInSeconds / chunkDuration) * waveformConfig.width
-								: ((chunkDuration - offsetInSeconds) / chunkDuration) * waveformConfig.width}
-							{#if emptyAreaWidth > 0}
-								<rect
-									x="0"
-									y="0"
-									width={emptyAreaWidth}
-									height={waveformConfig.height}
-									fill="url(#diagonalHatch-{chunk.index})"
-									pointer-events="none"
-								/>
-							{/if}
-							
-							<!-- Render song waveform bars only -->
-							{#each chunk.waveformBars as bar}
-								{#if !bar.isEmpty}
-									<rect
-										x={bar.x}
-										y={bar.y}
-										width={bar.width}
-										height={bar.height}
-										fill="#3b82f6"
-										opacity="0.8"
-									/>
-								{/if}
-							{/each}
-							
-							<!-- Song start marker line -->
-							{@const songStartX = beatOffset > 0 
-								? (offsetInSeconds / chunkDuration) * waveformConfig.width
-								: ((chunkDuration - offsetInSeconds) / chunkDuration) * waveformConfig.width}
-							<line
-								x1={songStartX}
-								y1="0"
-								x2={songStartX}
-								y2={waveformConfig.height}
-								stroke="#fbbf24"
-								stroke-width="2"
-								opacity="0.8"
-							/>
-							<text
-								x={songStartX + 2}
-								y="15"
-								fill="#fbbf24"
-								font-size="10"
-								font-family="monospace"
-								opacity="0.8"
-							>Song Start</text>
-						{:else}
-							<!-- Beat Grid Lines -->
-							{#each chunk.beatLines as line, beatIndex}
-								{@const lineKey = `${chunk.index}-${beatIndex}`}
-								{@const isActiveBeat = activeBeatLines.has(lineKey)}
-				{@const isHalfBeat = line.type === 'half-beat'}
-								<line
-									x1={line.x}
-									y1="0"
-									x2={line.x}
-									y2={waveformConfig.height}
-					stroke={isActiveBeat 
-						? (isHalfBeat ? 'rgba(251, 191, 36, 0.3)' : '#fbbf24')
-						: line.type === 'quarter' ? 'rgba(255, 255, 255, 0.5)' 
-						: line.type === 'beat' ? 'rgba(255, 255, 255, 0.3)'
-						: 'rgba(255, 255, 255, 0.15)'}
-									stroke-width={isActiveBeat 
-										? (isHalfBeat ? '0.8' : '3')
-						: line.type === 'quarter' ? '1.5' : line.type === 'beat' ? '1' : '0.5'}
-									class={isActiveBeat ? 'beat-active' : ''}
-									style={isActiveBeat ? (isHalfBeat ? '' : 'filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.8));') : ''}
-								/>
-							{/each}
-
-							<!-- Waveform Bars -->
-							{#each chunk.waveformBars as bar}
-								<rect
-									x={bar.x}
-									y={bar.y}
-									width={bar.width}
-									height={bar.height}
-									fill="#3b82f6"
-									opacity="0.8"
-								/>
-							{/each}
-						{/if}
-					</svg>
-
-					<!-- Annotations for this chunk -->
-					<div class="absolute pointer-events-none" style:top="40px" style:left="0px" style:width="{waveformConfig.width}px" style:height="{waveformConfig.height}px">
-						{#each chunk.annotations as annotation (annotation.id)}
-							<div class="pointer-events-auto">
-								<HtmlAnnotation
-									{annotation}
-									chunkBounds={chunk.bounds}
-									chunkWidth={waveformConfig.width}
-									chunkHeight={waveformConfig.height}
-									chunkIndex={chunk.index}
-									stackPosition={annotation.stackPosition || 0}
-									onEdit={handleEditAnnotation}
-									onDelete={handleDeleteAnnotation}
-									onMove={handleMoveAnnotation}
-									onDuplicate={handleDuplicateAnnotation}
-								/>
-							</div>
-						{/each}
-
-						<!-- Placeholder annotation if visible in this chunk -->
-						{#if chunk.placeholderAnnotation}
-							<div class="pointer-events-none opacity-60">
-								<HtmlAnnotation
-									annotation={chunk.placeholderAnnotation}
-									chunkBounds={chunk.bounds}
-									chunkWidth={waveformConfig.width}
-									chunkHeight={waveformConfig.height}
-									chunkIndex={chunk.index}
-									stackPosition={chunk.placeholderAnnotation.stackPosition || 0}
-									isPlaceholder={true}
-								/>
-							</div>
-						{/if}
+						<!-- Minimal header -->
+						<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between">
+							<div>{chunk.headerInfo}</div>
+							<div class="text-xs text-gray-500">Loading...</div>
+						</div>
+						<!-- Empty space for waveform -->
+						<div class="bg-gray-900" style="height: {waveformConfig.height}px"></div>
 					</div>
-				</div>
+				{/if}
 			{/each}
 		</div>
-
-		<!-- Playhead triangles (positioned over the appropriate chunk) -->
-		{#if playheadInfo && chunkData.length > 0}
-			{@const targetChunk = chunkData.find(c => c.index === playheadInfo.chunkIndex)}
-			{@const chunkContainerIndex = playheadInfo.chunkContainerIndex}
-			{#if targetChunk && chunkContainerIndex < chunkData.length}
-				{@const topY = chunkContainerIndex * (waveformConfig.height + 32 + 8) + 40}
-				{@const bottomY = topY + waveformConfig.height}
-				
-				<!-- Top triangle pointing down (inside the row) -->
-				<div
-					class="absolute pointer-events-none transition-all duration-100 ease-out"
-					style:left="{playheadInfo.x - 4}px"
-					style:top="{topY + 2}px"
-					style:width="0"
-					style:height="0"
-					style:border-left="4px solid transparent"
-					style:border-right="4px solid transparent"
-					style:border-top="8px solid #fbbf24"
-					style:filter="drop-shadow(0 0 2px rgba(251, 191, 36, 0.8))"
-					style:z-index="20"
-				></div>
-				
-				<!-- Bottom triangle pointing up (inside the row) -->
-				<div
-					class="absolute pointer-events-none transition-all duration-100 ease-out"
-					style:left="{playheadInfo.x - 4}px"
-					style:top="{bottomY - 10}px"
-					style:width="0"
-					style:height="0"
-					style:border-left="4px solid transparent"
-					style:border-right="4px solid transparent"
-					style:border-bottom="8px solid #fbbf24"
-					style:filter="drop-shadow(0 0 2px rgba(251, 191, 36, 0.8))"
-					style:z-index="20"
-				></div>
-			{/if}
-		{/if}
 	</div>
 </div>
 
