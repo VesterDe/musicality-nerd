@@ -485,12 +485,15 @@
 	function autoScrollToCurrentChunk() {
 		if (!sessionStore.autoFollow || !sessionStore.currentSession) return;
 
-		// Find the current chunk element using the class we added
-		const currentChunkElement = document.querySelector('.current-chunk');
-		
-		// Scroll to the current chunk
-		if (currentChunkElement) {
-			currentChunkElement.scrollIntoView({
+		// Compute the current chunk index regardless of render state
+		const chunkIndex = getCurrentChunkIndex();
+
+		// Prefer targeting the chunk container (works with virtualization placeholders)
+		const targetElement = document.querySelector(`[data-chunk-index="${chunkIndex}"]`) 
+			|| document.querySelector('.current-chunk');
+
+		if (targetElement) {
+			targetElement.scrollIntoView({
 				behavior: 'smooth',
 				block: 'center'
 			});
