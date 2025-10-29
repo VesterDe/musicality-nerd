@@ -9,6 +9,7 @@
 	import SongList from '$lib/components/SongList.svelte';
 	import Sidebar from '$lib/components/sidebar/Sidebar.svelte';
 	import type { TrackSession, Annotation } from '$lib/types';
+	let { data } = $props();
 
 	// Constants
 	const CURRENT_SESSION_KEY = 'current-session';
@@ -76,8 +77,16 @@
 			document.addEventListener('keyup', handleKeyup);
 		}
 
-		// Try to load the last session
-		await loadLastSession();
+
+		// If layout detected an existing session, set initializing immediately and load it
+		if (data?.hasCurrentSession) {
+			// Ensure initializing is true before any async work so UI doesn't flash SongList
+			sessionStore.setIsSessionInitializing(true);
+			await loadLastSession();
+		} else {
+			// No existing session, ensure we don't show loading state unnecessarily
+			sessionStore.setIsSessionInitializing(false);
+		}
 
 		// Setup beforeunload warning for unsaved changes (browser only)
 		if (typeof window !== 'undefined') {
@@ -115,6 +124,9 @@
 		if (!session.annotations) {
 			session.annotations = [];
 		}
+
+		// Set session early so the main UI can render without waiting for audio decode
+		sessionStore.setCurrentSession(session);
 		
 		// Load audio first
 		await audioEngine.loadTrack(session.mp3Blob);
@@ -127,7 +139,7 @@
 		
 		// Initialize speed controls
 		// Use saved targetBPM if it exists and is not 0, otherwise use the song's BPM
-    console.log('session.targetBPM', session.targetBPM, finalBpm);
+		console.log('session.targetBPM', session.targetBPM, finalBpm);
 		const targetBPM = (session.targetBPM && session.targetBPM > 0) ? session.targetBPM : finalBpm;
 		sessionStore.updateTargetBPM(targetBPM);
 		
@@ -159,7 +171,7 @@
 		sessionStore.bpm = finalBpm;
 		sessionStore.beatOffset = finalBeatOffset;
 		sessionStore.sliderBeatOffset = finalBeatOffset; // Keep slider in sync
-		sessionStore.setCurrentSession(session);
+		// currentSession already set early
 	}
 
 	async function handleSongSelected(sessionId: string) {
@@ -900,13 +912,7 @@
 		<!-- Main content area -->
 		<div class="{sessionStore.currentSession ? 'flex-1 p-4 space-y-6 overflow-y-auto' : 'space-y-6'}">
 		
-		{#if !sessionStore.currentSession}
-			<!-- Song List -->
-			<SongList 
-				onSongSelected={handleSongSelected}
-				onFilesDrop={handleFilesDrop}
-			/>
-		{:else}
+		{#if sessionStore.currentSession}
 			<!-- Transport Controls -->
 			<div class="bg-gray-800 rounded-lg p-4 sticky top-0 z-10 shadow-lg border-b border-gray-700 backdrop-blur-sm">
 				<div class="flex items-center space-x-4">
@@ -1021,6 +1027,19 @@
 					Made with ❤️ by <a href="https://vester.si/blog/me?utm_source=musicality-nerd" target="_blank" class="text-amber-500 hover:text-amber-400 transition-colors">Demjan</a>
 				</p>
 			</div>
+		{:else if sessionStore.isSessionInitializing}
+			<!-- Loading state while checking for previous session -->
+			<div class="bg-gray-800 rounded-lg p-8 text-center">
+				<div class="text-gray-400">
+					<div class="animate-pulse">Loading previous session...</div>
+				</div>
+			</div>
+		{:else}
+			<!-- Song List -->
+			<SongList 
+				onSongSelected={handleSongSelected}
+				onFilesDrop={handleFilesDrop}
+			/>
 		{/if}
 		</div>
 		
