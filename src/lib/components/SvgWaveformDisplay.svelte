@@ -108,6 +108,12 @@
 
 	// Get responsive container width  
 	const containerWidth = $derived(waveformContainer?.offsetWidth || 800);
+
+	// Compute target bars dynamically to limit DOM nodes while preserving detail
+	const targetBars = $derived.by(() => {
+		const barsPerTwoPixels = Math.floor(containerWidth / 2);
+		return Math.max(120, Math.min(360, barsPerTwoPixels));
+	});
 	
 	const waveformConfig = $derived.by((): WaveformConfig => ({
 		width: containerWidth,
@@ -142,50 +148,57 @@
 	// Heavy computation: generate waveform data for visible chunks only
 	const rawChunkData = $derived.by(() => {
 		if (!peaksData || chunkMetadata.length === 0) return [];
-		
+
 		const chunks = [];
 		for (const meta of chunkMetadata) {
 			// Check if chunk should be rendered (visible or in buffer zone)
 			const shouldRenderContent = isChunkInRenderRange(meta.index);
-			
+
+			// Get annotations for this chunk (lightweight - we'll pass to bar generation)
+			const chunkAnnotations = annotations.filter(annotation =>
+				annotation.startTimeMs < meta.bounds.endTimeMs && annotation.endTimeMs > meta.bounds.startTimeMs
+			);
+
 			// Generate waveform data only for visible chunks
 			let waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
 			let beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }> = [];
 			let headerInfo = '';
-			
+
 			if (shouldRenderContent) {
 				if (meta.isSpecialChunk) {
 					// Special chunk -1 handling
 					const offsetInSeconds = Math.abs(beatOffset) / 1000;
 					headerInfo = `Pre-song (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${offsetInSeconds.toFixed(3)}s)`;
-					
+
 					// Generate waveform bars for special chunk (includes empty and song bars)
-					waveformBars = generateWaveformBars(
-						peaksData, 
-						meta.bounds, 
-						waveformConfig.width, 
-						waveformConfig.height, 
-						300, 
-						meta.index, 
-						beatOffset, 
-						chunkDuration
+						waveformBars = generateWaveformBars(
+						peaksData,
+						meta.bounds,
+						waveformConfig.width,
+						waveformConfig.height,
+							targetBars,
+						meta.index,
+						beatOffset,
+						chunkDuration,
+						chunkAnnotations
 					);
 				} else {
 					// Generate beat grid
 					beatLines = generateBeatGrid(beatGrouping, waveformConfig.width, waveformConfig.height);
-					
+
 					// Generate waveform bars
-					waveformBars = generateWaveformBars(
-						peaksData, 
-						meta.bounds, 
-						waveformConfig.width, 
-						waveformConfig.height, 
-						300, 
-						meta.index, 
-						beatOffset, 
-						chunkDuration
+						waveformBars = generateWaveformBars(
+						peaksData,
+						meta.bounds,
+						waveformConfig.width,
+						waveformConfig.height,
+							targetBars,
+						meta.index,
+						beatOffset,
+						chunkDuration,
+						chunkAnnotations
 					);
-					
+
 					const startTime = meta.bounds.startTimeMs / 1000;
 					const endTime = meta.bounds.endTimeMs / 1000;
 				const startingBeat = meta.index * beatGrouping + 1;
@@ -398,7 +411,7 @@
 					if (chunkObserver && waveformContainer) {
 						const chunkElements = waveformContainer.querySelectorAll('[data-chunk-index]:not([data-observed])');
 						chunkElements.forEach(element => {
-							chunkObserver.observe(element);
+							chunkObserver!.observe(element);
 							element.setAttribute('data-observed', 'true');
 						});
 					}
@@ -414,7 +427,7 @@
 				if (chunkObserver) {
 					const chunkElements = waveformContainer.querySelectorAll('[data-chunk-index]');
 					chunkElements.forEach(element => {
-						chunkObserver.observe(element);
+						chunkObserver!.observe(element);
 						element.setAttribute('data-observed', 'true');
 					});
 				}
@@ -423,18 +436,14 @@
 				return () => {
 					clearTimeout(initTimer);
 					mutationObserver.disconnect();
-					if (chunkObserver) {
-						chunkObserver.disconnect();
-					}
+					chunkObserver?.disconnect();
 				};
 			}
 		}, 100);
 		
 		return () => {
 			clearTimeout(initTimer);
-			if (chunkObserver) {
-				chunkObserver.disconnect();
-			}
+			chunkObserver?.disconnect();
 		};
 	});
 
@@ -533,49 +542,47 @@
 		};
 	});
 
-	// Calculate which beat lines are currently being crossed by the playhead
-	const activeBeatLines = $derived.by(() => {
-		if (!isInitialized || audioDuration <= 0) return new Set<string>();
+	// Compute currently active bar index for the active chunk only
+	const activeBarInfo = $derived.by(() => {
+		if (!playheadInfo || !isInitialized || audioDuration <= 0) return null;
+		const currentChunk = rawChunkData.find(chunk => chunk.index === playheadInfo.chunkIndex);
+		if (!currentChunk) return null;
+		const barCount = targetBars;
+		const barWidth = containerWidth / barCount;
+		const idx = Math.max(0, Math.min(barCount - 1, Math.floor(playheadInfo.x / barWidth)));
+		return { chunkIndex: playheadInfo.chunkIndex, barIndex: idx };
+	});
 
+	// Compute flashing beat lines for the active chunk only
+	const activeBeatLineIndices = $derived.by(() => {
+		if (!isInitialized || audioDuration <= 0 || !playheadInfo) return new Set<number>();
+		const indices = new Set<number>();
 		const offsetInSeconds = beatOffset / 1000;
 		const beatDuration = 60 / bpm;
-		const flashDuration = 0.1; // 50ms flash duration
-		
-		const activeLines = new Set<string>();
-		
-		// Beat lines represent beats in "grid time" which is currentTime + offset
-		// When offset is negative, the grid is shifted earlier relative to the song
+		const flashDuration = 0.1; // 100ms window
 		const gridTime = currentTime + offsetInSeconds;
-		
-		for (let chunkIndex = beatOffset !== 0 ? -1 : 0; chunkIndex < totalChunks; chunkIndex++) {
-			if (chunkIndex === -1 && beatOffset === 0) continue;
-			
-			// Calculate when this chunk starts in grid time
-			let chunkStartGridTime: number;
-			if (chunkIndex === -1) {
-				chunkStartGridTime = beatOffset < 0 ? -chunkDuration : 0;
-			} else {
-				chunkStartGridTime = chunkIndex * chunkDuration;
-			}
-			
-			// Check each beat line in this chunk (now includes half-beats)
-			// We iterate through half-beat increments to match generateBeatGrid
-			let lineIndex = 0;
-			for (let i = 0.5; i < beatGrouping; i += 0.5) {
-				// Calculate when this beat line occurs in grid time
-				const beatLineGridTime = chunkStartGridTime + (i * beatDuration);
-				
-				// Check if current grid time is within 50ms of this beat line
-				const timeDiff = Math.abs(gridTime - beatLineGridTime);
-				
-				if (timeDiff <= flashDuration / 2) {
-					activeLines.add(`${chunkIndex}-${lineIndex}`);
-				}
-				lineIndex++;
-			}
+
+		const chunkIndex = playheadInfo.chunkIndex;
+		if (chunkIndex === undefined || chunkIndex === null) return indices;
+
+		let chunkStartGridTime: number;
+		if (chunkIndex === -1) {
+			chunkStartGridTime = beatOffset < 0 ? -chunkDuration : 0;
+		} else {
+			chunkStartGridTime = chunkIndex * chunkDuration;
 		}
-		
-		return activeLines;
+
+		let lineIndex = 0;
+		for (let i = 0.5; i < beatGrouping; i += 0.5) {
+			const beatLineGridTime = chunkStartGridTime + (i * beatDuration);
+			const timeDiff = Math.abs(gridTime - beatLineGridTime);
+			if (timeDiff <= flashDuration / 2) {
+				indices.add(lineIndex);
+			}
+			lineIndex++;
+		}
+
+		return indices;
 	});
 
 
@@ -984,7 +991,9 @@
 						annotations={chunk.annotations}
 						placeholderAnnotation={chunk.placeholderAnnotation}
 						isLooping={chunk.isLooping}
-						{activeBeatLines}
+						isActiveChunk={playheadInfo?.chunkIndex === chunk.index}
+						activeBarIndex={playheadInfo?.chunkIndex === chunk.index && activeBarInfo ? activeBarInfo.barIndex : -1}
+						activeBeatLineIndices={playheadInfo?.chunkIndex === chunk.index ? activeBeatLineIndices : undefined}
 						playheadVisible={playheadInfo?.chunkIndex === chunk.index}
 						playheadX={playheadInfo?.chunkIndex === chunk.index ? playheadInfo.x : 0}
 						{waveformConfig}

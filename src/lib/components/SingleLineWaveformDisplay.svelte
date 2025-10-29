@@ -7,7 +7,7 @@
 		chunkIndex: number;
 		bounds: ChunkBounds;
 		isSpecialChunk: boolean;
-		waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }>;
+		waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean; annotationColors?: Array<{ color: string; startY: number; endY: number }> }>;
 		beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }>;
 		headerInfo: string;
 		startTime: number;
@@ -15,7 +15,9 @@
 		annotations: Array<Annotation & { stackPosition: number }>;
 		placeholderAnnotation: (Annotation & { stackPosition: number }) | null;
 		isLooping: boolean;
-		activeBeatLines: Set<string>;
+		isActiveChunk: boolean;
+		activeBeatLineIndices?: Set<number>;
+		activeBarIndex: number;
 		playheadVisible: boolean;
 		playheadX: number;
 		waveformConfig: WaveformConfig;
@@ -47,7 +49,9 @@
 		annotations,
 		placeholderAnnotation,
 		isLooping,
-		activeBeatLines,
+		isActiveChunk,
+		activeBeatLineIndices,
+		activeBarIndex,
 		playheadVisible,
 		playheadX,
 		waveformConfig,
@@ -140,14 +144,35 @@
 			<!-- Render song waveform bars only -->
 			{#each waveformBars as bar}
 				{#if !bar.isEmpty}
-					<rect
-						x={bar.x}
-						y={bar.y}
-						width={bar.width}
-						height={bar.height}
-						fill="#3b82f6"
-						opacity="0.8"
-					/>
+					{#if bar.annotationColors && bar.annotationColors.length > 0}
+						{#each bar.annotationColors as colorSection}
+							<rect
+								x={bar.x}
+								y={colorSection.startY}
+								width={bar.width}
+								height={colorSection.endY - colorSection.startY}
+								fill={colorSection.color}
+								opacity="0.4"
+							/>
+							<rect
+								x={bar.x}
+								y={Math.max(bar.y, colorSection.startY)}
+								width={bar.width}
+								height={Math.min(bar.y + bar.height, colorSection.endY) - Math.max(bar.y, colorSection.startY)}
+								fill={colorSection.color}
+								opacity="1"
+							/>
+						{/each}
+					{:else}
+						<rect
+							x={bar.x}
+							y={bar.y}
+							width={bar.width}
+							height={bar.height}
+							fill="#3b82f6"
+							opacity="0.8"
+						/>
+					{/if}
 				{/if}
 			{/each}
 			
@@ -173,10 +198,9 @@
 				opacity="0.8"
 			>Song Start</text>
 		{:else}
-			<!-- Beat Grid Lines -->
+			<!-- Beat Grid Lines with flashing for active chunk -->
 			{#each beatLines as line, beatIndex}
-				{@const lineKey = `${chunkIndex}-${beatIndex}`}
-				{@const isActiveBeat = activeBeatLines.has(lineKey)}
+				{@const isActiveBeat = isActiveChunk && activeBeatLineIndices && activeBeatLineIndices.has(beatIndex)}
 				{@const isHalfBeat = line.type === 'half-beat'}
 				<line
 					x1={line.x}
@@ -198,15 +222,70 @@
 
 			<!-- Waveform Bars -->
 			{#each waveformBars as bar}
-				<rect
-					x={bar.x}
-					y={bar.y}
-					width={bar.width}
-					height={bar.height}
-					fill="#3b82f6"
-					opacity="0.8"
-				/>
+				{#if bar.annotationColors && bar.annotationColors.length > 0}
+					{#each bar.annotationColors as colorSection}
+						<rect
+							x={bar.x}
+							y={colorSection.startY}
+							width={bar.width}
+							height={colorSection.endY - colorSection.startY}
+							fill={colorSection.color}
+							opacity="0.4"
+						/>
+						<rect
+							x={bar.x}
+							y={Math.max(bar.y, colorSection.startY)}
+							width={bar.width}
+							height={Math.min(bar.y + bar.height, colorSection.endY) - Math.max(bar.y, colorSection.startY)}
+							fill={colorSection.color}
+							opacity="1"
+						/>
+					{/each}
+				{:else}
+					<rect
+						x={bar.x}
+						y={bar.y}
+						width={bar.width}
+						height={bar.height}
+						fill="#3b82f6"
+						opacity="0.8"
+					/>
+				{/if}
 			{/each}
+
+			<!-- Lightweight overlays for the active chunk only -->
+			{#if isActiveChunk}
+				{@const roundedX = Math.round(playheadX)}
+				<!-- Playhead highlight line -->
+				<line
+					x1={roundedX}
+					y1="0"
+					x2={roundedX}
+					y2={waveformConfig.height}
+					stroke="#fbbf24"
+					stroke-width="1.5"
+					opacity="0.3"
+					pointer-events="none"
+				/>
+
+				<!-- Annotated bar flash overlay (only when bar has annotations) -->
+				{@const _activeIndex = activeBarIndex >= 0 && activeBarIndex < waveformBars.length ? activeBarIndex : -1}
+				{@const _activeBar = _activeIndex >= 0 ? waveformBars[_activeIndex] : null}
+				{#if _activeBar && _activeBar.annotationColors && _activeBar.annotationColors.length > 0}
+					{#key activeBarIndex}
+						<rect
+							x={_activeBar.x}
+							y="0"
+							width={_activeBar.width}
+							height={waveformConfig.height}
+							fill="#fbbf24"
+							opacity="0.08"
+							class="annotation-bar-flash"
+							pointer-events="none"
+						/>
+					{/key}
+				{/if}
+			{/if}
 		{/if}
 	</svg>
 
@@ -249,11 +328,12 @@
 	{#if playheadVisible}
 		{@const topY = 42} <!-- 40px header + 2px padding -->
 		{@const bottomY = topY + waveformConfig.height - 10}
+		{@const roundedX = Math.round(playheadX)}
 		
 		<!-- Top triangle pointing down -->
 		<div
-			class="absolute pointer-events-none transition-all duration-100 ease-out"
-			style:left="{playheadX - 4}px"
+			class="absolute pointer-events-none"
+			style:left="{roundedX - 4}px"
 			style:top="{topY}px"
 			style:width="0"
 			style:height="0"
@@ -266,8 +346,8 @@
 		
 		<!-- Bottom triangle pointing up -->
 		<div
-			class="absolute pointer-events-none transition-all duration-100 ease-out"
-			style:left="{playheadX - 4}px"
+			class="absolute pointer-events-none"
+			style:left="{roundedX - 4}px"
 			style:top="{bottomY}px"
 			style:width="0"
 			style:height="0"
@@ -300,6 +380,24 @@
 		100% {
 			opacity: 1;
 			stroke-width: 3;
+		}
+	}
+
+	/* Subtle flash animation for annotated bars as playhead crosses them */
+	:global(.annotation-bar-flash) {
+		transition: filter 0.05s ease-out;
+		animation: annotationBarFlash 0.1s ease-out;
+	}
+
+	@keyframes annotationBarFlash {
+		0% {
+			filter: brightness(1.2);
+		}
+		50% {
+			filter: brightness(1.25);
+		}
+		100% {
+			filter: brightness(1.2);
 		}
 	}
 </style>

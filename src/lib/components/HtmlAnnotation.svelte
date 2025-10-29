@@ -75,28 +75,24 @@
 
 	// Calculate annotation positioning
 	const isPointAnnotation = $derived(annotation.isPoint || annotation.startTimeMs === annotation.endTimeMs);
-	
+
 	const startX = $derived(() => {
 		return timeToPixel(annotation.startTimeMs, chunkBounds, chunkWidth);
 	});
-	
+
 	const endX = $derived(() => {
 		return timeToPixel(annotation.endTimeMs, chunkBounds, chunkWidth);
 	});
-	
-	const width = $derived(isPointAnnotation ? 12 : Math.max(20, endX() - startX())); // Minimum width for duration annotations
-	
-	const annotationY = $derived(chunkHeight - 20 - (stackPosition * 25)); // Stack from very bottom up, 25px apart
 
-	// Visibility is already handled by parent component, so we always render
+	const width = $derived(isPointAnnotation ? 12 : Math.max(20, endX() - startX())); // Minimum width for duration annotations
 
 	function handleMouseDown(event: MouseEvent) {
 		if (isPlaceholder) return;
-		
+
 		event.stopPropagation();
-		
+
 		const target = event.target as HTMLElement;
-		
+
 		// Check if clicking on resize handle
 		if (target.classList.contains('resize-handle')) {
 			isResizing = true;
@@ -109,10 +105,10 @@
 			originalStartTime = annotation.startTimeMs;
 			originalEndTime = annotation.endTimeMs;
 		}
-		
+
 		dragStartX = event.clientX;
 		lastPointerClientX = event.clientX;
-		
+
 		// Add global mouse listeners
 		document.addEventListener('mousemove', handleGlobalMouseMove);
 		document.addEventListener('mouseup', handleGlobalMouseUp);
@@ -146,11 +142,11 @@
 
 	function handleGlobalMouseMove(event: MouseEvent) {
 		if (!isDragging && !isResizing) return;
-		
+
 		const deltaX = event.clientX - dragStartX;
 		const deltaTime = (deltaX / chunkWidth) * (chunkBounds.endTimeMs - chunkBounds.startTimeMs);
 		lastPointerClientX = event.clientX;
-		
+
 		if (isResizing && resizeHandle) {
 			// Handle resizing
 			if (resizeHandle === 'start') {
@@ -180,11 +176,11 @@
 				onMove(annotation.id, annotation.startTimeMs, annotation.endTimeMs);
 			}
 		}
-		
+
 		isDragging = false;
 		isResizing = false;
 		resizeHandle = null;
-		
+
 		document.removeEventListener('mousemove', handleGlobalMouseMove);
 		document.removeEventListener('mouseup', handleGlobalMouseUp);
 	}
@@ -255,272 +251,146 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
-		class="absolute group"
-		class:transition-all={!isPlaceholder}
-		class:duration-150={!isPlaceholder}
-		class:cursor-pointer={!isPlaceholder}
-		class:cursor-default={isPlaceholder}
-		class:opacity-80={!showUtility && !isPlaceholder}
-		class:opacity-100={showUtility && !isPlaceholder}
-		class:opacity-60={isPlaceholder}
-		class:animate-pulse={isPlaceholder}
-		style:left="{startX()}px"
-		style:top="{annotationY}px"
-		style:width="{width}px"
-		style:height="{isPointAnnotation ? '20px' : '20px'}"
-		role={isPlaceholder ? "presentation" : "button"}
-		tabindex={isPlaceholder ? -1 : 0}
-		onmouseenter={() => {
-			if (!isPlaceholder) {
+	class="absolute group"
+	class:cursor-pointer={!isPlaceholder}
+	class:cursor-default={isPlaceholder}
+	class:opacity-60={isPlaceholder}
+	style:left="{startX()}px"
+	style:top="0px"
+	style:width="{width}px"
+	style:height="{chunkHeight}px"
+	role={isPlaceholder ? "presentation" : "button"}
+	tabindex={isPlaceholder ? -1 : 0}
+	onmouseenter={() => {
+		if (!isPlaceholder) {
+			cancelHideTimer();
+			isHovered = true;
+		}
+	}}
+	onmouseleave={() => {
+		if (!isPlaceholder) {
+			startHideTimer();
+		}
+	}}
+	onmousedown={handleMouseDown}
+	ontouchstart={handleTouchStart}
+	style:touch-action="none"
+	onkeydown={(e) => {
+		if (isPlaceholder) return;
+		if (e.key === 'Enter' || e.key === ' ') {
+			handleEdit();
+		} else if (e.key === 'Delete' || e.key === 'Backspace') {
+			handleDelete();
+		}
+	}}
+>
+	<!-- Invisible interaction area - covers full height -->
+	<div class="w-full h-full" style:opacity="0"></div>
+
+	<!-- Resize handles for duration annotations -->
+	{#if showUtility && !isPointAnnotation && !isPlaceholder}
+		<div
+			class="resize-handle absolute left-0 top-0 w-2 h-full cursor-w-resize bg-white bg-opacity-20 hover:bg-opacity-40 transition-all duration-150"
+			data-handle="start"
+		></div>
+		<div
+			class="resize-handle absolute right-0 top-0 w-2 h-full cursor-e-resize bg-white bg-opacity-20 hover:bg-opacity-40 transition-all duration-150"
+			data-handle="end"
+		></div>
+	{/if}
+
+	<!-- Utility Panel - visible on hover -->
+	{#if showUtility && !isPlaceholder}
+		<div
+			class="annotation-utility-panel absolute z-10 flex items-center space-x-1 bg-gray-800 rounded px-2 shadow-lg border border-gray-600"
+			style:right="-90px"
+			style:top="50%"
+			style:transform="translateY(-50%)"
+			style:height="28px"
+			onmouseenter={() => {
 				cancelHideTimer();
-				isHovered = true;
-			}
-		}}
-		onmouseleave={() => {
-			if (!isPlaceholder) {
+				isUtilityHovered = true;
+			}}
+			onmouseleave={() => {
 				startHideTimer();
-			}
-		}}
-		onmousedown={handleMouseDown}
-		ontouchstart={handleTouchStart}
-		style:touch-action="none"
-		onkeydown={(e) => {
-			if (isPlaceholder) return;
-			if (e.key === 'Enter' || e.key === ' ') {
-				handleEdit();
-			} else if (e.key === 'Delete' || e.key === 'Backspace') {
-				handleDelete();
-			}
-		}}
-	>
-		{#if isPointAnnotation}
-			<!-- Point Annotation -->
-			<div
-				class="point-annotation relative flex items-center h-5"
-				style:color={annotation.color}
+			}}
+			role="toolbar"
+			aria-label="Annotation actions"
+			tabindex="-1"
+		>
+			<button
+				class="utility-button w-5 h-5 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105 bg-blue-600 hover:bg-blue-500"
+				onclick={handleEdit}
+				title="Edit annotation"
+				aria-label="Edit annotation"
 			>
-				<!-- Dot - perfectly circular -->
-				<div
-					class="w-4 h-4 rounded-full border-2 transition-all duration-150 flex-shrink-0"
-					class:scale-125={showUtility}
-					class:shadow-lg={showUtility}
-					style:background-color={annotation.color}
-					style:border-color="white"
-				></div>
-				
-				<!-- Label -->
-				<div
-					class="ml-2 text-xs font-medium whitespace-nowrap transition-colors duration-150 leading-tight"
-					class:text-white={showUtility}
-					style:color={annotation.color}
-				>
-					{annotation.label}
-				</div>
-
-				<!-- Utility Panel inside point annotation -->
-				{#if showUtility && !isPlaceholder}
-					<div 
-						class="annotation-utility-panel absolute z-10 flex items-center space-x-1"
-						style:right="-90px"
-						style:top="0px"
-						style:height="20px"
-						onmouseenter={() => {
-							cancelHideTimer();
-							isUtilityHovered = true;
-						}}
-						onmouseleave={() => {
-							startHideTimer();
-						}}
-						role="toolbar"
-						aria-label="Annotation actions"
-						tabindex="-1"
-					>
-						<button
-							class="utility-button w-5 h-5 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
-							class:bg-blue-600={true}
-							class:hover:bg-blue-500={true}
-							onclick={handleEdit}
-							title="Edit annotation"
-							aria-label="Edit annotation"
-							style:color="white"
-						>
-							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-								<path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path>
-							</svg>
-						</button>
-						<button
-							class="utility-button w-5 h-5 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
-							class:bg-green-600={true}
-							class:hover:bg-green-500={true}
-							onclick={handleDuplicate}
-							title="Duplicate annotation"
-							aria-label="Duplicate annotation"
-							style:color="white"
-						>
-							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-								<path d="M7 7h10v10H7z"></path>
-								<path d="M3 3h10v10H3z" fill="none" stroke="currentColor" stroke-width="1"></path>
-							</svg>
-						</button>
-						<button
-							class="utility-button w-5 h-5 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
-							class:bg-red-600={true}
-							class:hover:bg-red-500={true}
-							onclick={handleDelete}
-							title="Delete annotation"
-							aria-label="Delete annotation"
-							style:color="white"
-						>
-							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-								<path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-							</svg>
-						</button>
-					</div>
-				{/if}
-			</div>
-		{:else}
-			<!-- Duration Annotation -->
-			<div
-				class="duration-annotation relative h-full rounded transition-all duration-150"
-				class:shadow-lg={showUtility}
-				class:ring-2={showUtility}
-				class:ring-white={showUtility}
-				class:ring-opacity-50={showUtility}
-				style:background-color="{annotation.color}80"
-				style:border="1px solid {annotation.color}"
+				<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+					<path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path>
+				</svg>
+			</button>
+			<button
+				class="utility-button w-5 h-5 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105 bg-green-600 hover:bg-green-500"
+				onclick={handleDuplicate}
+				title="Duplicate annotation"
+				aria-label="Duplicate annotation"
 			>
-				<!-- Resize handles -->
-				{#if showUtility && !isPointAnnotation && !isPlaceholder}
-					<div
-						class="resize-handle absolute left-0 top-0 w-2 h-full cursor-w-resize bg-white bg-opacity-20 hover:bg-opacity-40 transition-all duration-150"
-						data-handle="start"
-					></div>
-					<div
-						class="resize-handle absolute right-0 top-0 w-2 h-full cursor-e-resize bg-white bg-opacity-20 hover:bg-opacity-40 transition-all duration-150"
-						data-handle="end"
-					></div>
-				{/if}
-				
-				<!-- Content (clean without buttons) -->
-				<div class="flex items-center h-full px-2">
-					<!-- Label -->
-					<div class="text-white text-xs font-medium truncate flex-1">
-						{annotation.label}
-					</div>
-				</div>
-				
-				<!-- Move indicator -->
-				{#if showUtility && width > 60 && !isPlaceholder}
-					<div class="absolute top-1 left-1/2 transform -translate-x-1/2 text-white text-xs opacity-60 transition-opacity duration-150">
-						↔️
-					</div>
-				{/if}
+				<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+					<path d="M7 7h10v10H7z"></path>
+					<path d="M3 3h10v10H3z" fill="none" stroke="currentColor" stroke-width="1"></path>
+				</svg>
+			</button>
+			<button
+				class="utility-button w-5 h-5 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105 bg-red-600 hover:bg-red-500"
+				onclick={handleDelete}
+				title="Delete annotation"
+				aria-label="Delete annotation"
+			>
+				<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+					<path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+				</svg>
+			</button>
+		</div>
+	{/if}
 
-				<!-- Utility Panel inside duration annotation -->
-				{#if showUtility && !isPlaceholder}
-					<div 
-						class="annotation-utility-panel absolute z-10 h-full rounded transition-all duration-150 flex items-center space-x-1 px-2"
-						class:shadow-lg={true}
-						class:ring-2={true}
-						class:ring-white={true}
-						class:ring-opacity-50={true}
-						style:right="-90px"
-						style:top="0px"
-						style:height="20px"
-						style:background-color="{annotation.color}80"
-						style:border="1px solid {annotation.color}"
-						onmouseenter={() => {
-							cancelHideTimer();
-							isUtilityHovered = true;
-						}}
-						onmouseleave={() => {
-							startHideTimer();
-						}}
-						role="toolbar"
-						aria-label="Annotation actions"
-						tabindex="-1"
-					>
-						<button
-							class="utility-button w-4 h-4 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
-							class:bg-blue-600={true}
-							class:hover:bg-blue-500={true}
-							onclick={handleEdit}
-							title="Edit annotation"
-							aria-label="Edit annotation"
-							style:color="white"
-						>
-							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-								<path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path>
-							</svg>
-						</button>
-						<button
-							class="utility-button w-4 h-4 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
-							class:bg-green-600={true}
-							class:hover:bg-green-500={true}
-							onclick={handleDuplicate}
-							title="Duplicate annotation"
-							aria-label="Duplicate annotation"
-							style:color="white"
-						>
-							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-								<path d="M7 7h10v10H7z"></path>
-								<path d="M3 3h10v10H3z" fill="none" stroke="currentColor" stroke-width="1"></path>
-							</svg>
-						</button>
-						<button
-							class="utility-button w-4 h-4 rounded transition-all duration-150 text-white text-xs flex items-center justify-center hover:scale-105"
-							class:bg-red-600={true}
-							class:hover:bg-red-500={true}
-							onclick={handleDelete}
-							title="Delete annotation"
-							aria-label="Delete annotation"
-							style:color="white"
-						>
-							<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-								<path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-							</svg>
-						</button>
-					</div>
-				{/if}
-			</div>
-		{/if}
+	<!-- Label display - shown on hover -->
+	{#if showUtility && !isPlaceholder}
+		<div
+			class="absolute z-10 bg-gray-900 text-white px-2 py-1 rounded text-xs whitespace-nowrap shadow-lg border border-gray-700"
+			style:left="50%"
+			style:top="-30px"
+			style:transform="translateX(-50%)"
+		>
+			{annotation.label}
+		</div>
+	{/if}
 </div>
 
 <style>
-	.point-annotation {
-		pointer-events: all;
-	}
-	
-	.duration-annotation {
-		pointer-events: all;
-		user-select: none;
-	}
-	
 	.resize-handle {
 		pointer-events: all;
 	}
-	
+
 	.annotation-utility-panel {
 		pointer-events: all;
 		animation: utility-panel-appear 0.15s ease-out;
 	}
-	
+
 	.utility-button {
 		pointer-events: all;
 	}
-	
+
 	.utility-button:hover {
 		transform: scale(1.05);
 	}
-	
+
 	@keyframes utility-panel-appear {
 		from {
 			opacity: 0;
-			transform: translateX(-4px) scale(0.95);
+			transform: translateY(-50%) translateX(-4px) scale(0.95);
 		}
 		to {
 			opacity: 1;
-			transform: translateX(0) scale(1);
+			transform: translateY(-50%) translateX(0) scale(1);
 		}
 	}
 </style>

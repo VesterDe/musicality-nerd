@@ -3,6 +3,8 @@
  * Functions for processing audio peak data and generating SVG waveform visualizations
  */
 
+import type { Annotation } from '../types';
+
 export interface ChunkBounds {
 	startSample: number;
 	endSample: number;
@@ -168,6 +170,44 @@ export function generateSmoothWaveformPath(
 	return path;
 }
 
+export interface WaveformBar {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	isEmpty?: boolean;
+	annotationColors?: Array<{ color: string; startY: number; endY: number }>;
+}
+
+/**
+ * Calculate which annotations overlap with a given bar's time range
+ */
+function getBarAnnotations(
+	barTimeMs: number,
+	barDurationMs: number,
+	annotations: Array<Annotation & { stackPosition?: number }>,
+	height: number
+): Array<{ color: string; startY: number; endY: number }> | undefined {
+	const barStartMs = barTimeMs;
+	const barEndMs = barTimeMs + barDurationMs;
+
+	// Find all annotations that overlap with this bar's time range
+	const overlapping = annotations.filter(annotation =>
+		annotation.startTimeMs < barEndMs && annotation.endTimeMs > barStartMs
+	);
+
+	if (overlapping.length === 0) return undefined;
+
+	// Each annotation gets 1/n of the vertical height
+	const heightPerAnnotation = height / overlapping.length;
+
+	return overlapping.map((annotation, index) => ({
+		color: annotation.color,
+		startY: index * heightPerAnnotation,
+		endY: (index + 1) * heightPerAnnotation
+	}));
+}
+
 /**
  * Generate SVG bars for waveform visualization
  */
@@ -179,27 +219,32 @@ export function generateWaveformBars(
 	targetBars: number = 100,
 	chunkIndex?: number,
 	beatOffset?: number,
-	chunkDuration?: number
-): Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> {
+	chunkDuration?: number,
+	annotations?: Array<Annotation & { stackPosition?: number }>
+): Array<WaveformBar> {
 	// Special handling for chunk -1 (pre-song chunk with offset)
 	if (chunkIndex === -1 && beatOffset !== undefined && chunkDuration !== undefined) {
-		return generatePreSongChunkBars(peaksData, bounds, width, height, targetBars, beatOffset, chunkDuration);
+		return generatePreSongChunkBars(peaksData, bounds, width, height, targetBars, beatOffset, chunkDuration, annotations);
 	}
 
-	const { startSample, endSample } = bounds;
+	const { startSample, endSample, startTimeMs, endTimeMs } = bounds;
 	const bars = downsamplePeaks(peaksData, startSample, endSample, targetBars);
 	const barWidth = width / targetBars;
-	
+	const chunkDurationMs = endTimeMs - startTimeMs;
+	const barDurationMs = chunkDurationMs / targetBars;
+
 	return bars.map((bar, index) => {
 		const amplitude = Math.max(Math.abs(bar.min), Math.abs(bar.max));
-		const barHeight = amplitude * height; // 80% of available height for some headroom
-		
+		const barHeight = amplitude * height;
+		const barTimeMs = startTimeMs + (index * barDurationMs);
+
 		return {
 			x: index * barWidth,
 			y: height - barHeight, // Position from bottom
 			width: Math.max(1, barWidth - 1), // Small gap between bars
 			height: Math.max(1, barHeight),
-			isEmpty: false // Regular chunks are never empty
+			isEmpty: false,
+			annotationColors: annotations ? getBarAnnotations(barTimeMs, barDurationMs, annotations, height) : undefined
 		};
 	});
 }
@@ -214,64 +259,72 @@ function generatePreSongChunkBars(
 	height: number,
 	targetBars: number,
 	beatOffset: number,
-	chunkDuration: number
-): Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> {
+	chunkDuration: number,
+	annotations?: Array<Annotation & { stackPosition?: number }>
+): Array<WaveformBar> {
 	const barWidth = width / targetBars;
 	const offsetInSeconds = Math.abs(beatOffset) / 1000;
+	const { startTimeMs, endTimeMs } = bounds;
+	const chunkDurationMs = endTimeMs - startTimeMs;
+	const barDurationMs = chunkDurationMs / targetBars;
 
 	if (beatOffset > 0) {
 		// Positive offset: song appears after the offset time
 		const songStartPosition = offsetInSeconds / chunkDuration;
 		const songStartBar = Math.floor(songStartPosition * targetBars);
-		
+
 		// Only generate song bars, no empty bars (empty area handled by SVG rect)
-		const bars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
+		const bars: Array<WaveformBar> = [];
 		const songBarsCount = targetBars - songStartBar;
-		
+
 		if (songBarsCount > 0 && bounds.endSample > bounds.startSample) {
 			const songPeaks = downsamplePeaks(peaksData, bounds.startSample, bounds.endSample, songBarsCount);
-			
+
 			songPeaks.forEach((bar, index) => {
 				const amplitude = Math.max(Math.abs(bar.min), Math.abs(bar.max));
-				const barHeight = amplitude * height; // 80% of available height for some headroom
-				
+				const barHeight = amplitude * height;
+				const barTimeMs = startTimeMs + ((songStartBar + index) * barDurationMs);
+
 				bars.push({
 					x: (songStartBar + index) * barWidth,
 					y: height - barHeight, // Position from bottom
 					width: Math.max(1, barWidth - 1),
 					height: Math.max(1, barHeight),
-					isEmpty: false
+					isEmpty: false,
+					annotationColors: annotations ? getBarAnnotations(barTimeMs, barDurationMs, annotations, height) : undefined
 				});
 			});
 		}
-		
+
 		return bars;
 	} else if (beatOffset < 0) {
 		// Negative offset: song appears after empty space
 		const songPosition = (chunkDuration - offsetInSeconds) / chunkDuration;
 		const songStartBar = Math.floor(songPosition * targetBars);
-		
+
 		// Only generate song bars, no empty bars (empty area handled by SVG rect)
-		const bars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
+		const bars: Array<WaveformBar> = [];
 		const songBarsCount = targetBars - songStartBar;
-		
+
 		if (songBarsCount > 0 && bounds.endSample > bounds.startSample) {
 			const songPeaks = downsamplePeaks(peaksData, bounds.startSample, bounds.endSample, songBarsCount);
-			
+
 			songPeaks.forEach((bar, index) => {
 				const amplitude = Math.max(Math.abs(bar.min), Math.abs(bar.max));
-				const barHeight = amplitude * height; // 80% of available height for some headroom
-				
+				const barHeight = amplitude * height;
+				const barTimeMs = startTimeMs + ((songStartBar + index) * barDurationMs);
+
 				bars.push({
 					x: (songStartBar + index) * barWidth,
 					y: height - barHeight, // Position from bottom
 					width: Math.max(1, barWidth - 1),
 					height: Math.max(1, barHeight),
-					isEmpty: false
+					isEmpty: false,
+					annotationColors: annotations ? getBarAnnotations(barTimeMs, barDurationMs, annotations, height) : undefined
 				});
 			});
 		}
-		
+
 		return bars;
 	}
 
