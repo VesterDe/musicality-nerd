@@ -853,8 +853,9 @@
 			// Generate meaningful filename
 			const chunkName = chunkIndex === -1 ? 'pre-song' : `chunk_${chunkIndex}`;
 			const exportFilename = `${filename}_${chunkName}.wav`;
-			
-			await exportService.exportChunk(audioBuffer, startTime, endTime, exportFilename);
+			// Apply current BPM scaling (pitch shifts) using playbackRate
+			const playbackRate = targetBPM / bpm;
+			await exportService.exportChunk(audioBuffer, startTime, endTime, exportFilename, { playbackRate });
 		} catch (error) {
 			console.error('Failed to export chunk:', error);
 			alert('Failed to export chunk. Please try again.');
@@ -920,7 +921,9 @@
 				: `chunks_${sortedIndices[0] === -1 ? 'pre-song' : sortedIndices[0]}-${sortedIndices[sortedIndices.length - 1]}`;
 			const exportFilename = `${filename}_${rangeStr}.wav`;
 			
-			await exportService.exportChunkGroup(audioBuffer, chunks, exportFilename);
+			// Apply current BPM scaling (pitch shifts) using playbackRate to the combined buffer
+			const playbackRate = targetBPM / bpm;
+			await exportService.exportChunkGroup(audioBuffer, chunks, exportFilename, { playbackRate });
 		} catch (error) {
 			console.error('Failed to export chunk group:', error);
 			alert('Failed to export chunk group. Please try again.');

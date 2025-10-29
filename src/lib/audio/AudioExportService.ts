@@ -21,7 +21,8 @@ export class AudioExportService {
 		sourceBuffer: AudioBuffer, 
 		startTime: number, 
 		endTime: number, 
-		filename: string
+        filename: string,
+        options?: { playbackRate?: number }
 	): Promise<void> {
 		await this.initialize();
 		
@@ -61,8 +62,14 @@ export class AudioExportService {
 			}
 		}
 
-		// Convert AudioBuffer to MP3 and download
-		await this.downloadAudioBuffer(chunkBuffer, filename);
+        // If a playbackRate is provided and differs from 1, time-scale the buffer
+        const playbackRate = options?.playbackRate ?? 1;
+        const outputBuffer = playbackRate !== 1
+            ? await this.timeScaleBuffer(chunkBuffer, playbackRate)
+            : chunkBuffer;
+
+        // Convert AudioBuffer to WAV and download
+        await this.downloadAudioBuffer(outputBuffer, filename);
 	}
 
 	/**
@@ -71,7 +78,8 @@ export class AudioExportService {
 	async exportChunkGroup(
 		sourceBuffer: AudioBuffer,
 		chunks: Array<{ startTime: number; endTime: number; index: number }>,
-		filename: string
+        filename: string,
+        options?: { playbackRate?: number }
 	): Promise<void> {
 		await this.initialize();
 		
@@ -128,8 +136,14 @@ export class AudioExportService {
 			}
 		}
 
-		// Convert combined buffer to MP3 and download
-		await this.downloadAudioBuffer(combinedBuffer, filename);
+        // Apply optional time scaling to the combined buffer
+        const playbackRate = options?.playbackRate ?? 1;
+        const outputBuffer = playbackRate !== 1
+            ? await this.timeScaleBuffer(combinedBuffer, playbackRate)
+            : combinedBuffer;
+
+        // Convert combined buffer to WAV and download
+        await this.downloadAudioBuffer(outputBuffer, filename);
 	}
 
 	/**
@@ -213,6 +227,31 @@ export class AudioExportService {
 		
 		return new Blob([arrayBuffer], { type: 'audio/wav' });
 	}
+
+    /**
+     * Render a buffer at a given playbackRate using OfflineAudioContext.
+     * Pitch will shift with tempo (no time-stretching algorithm).
+     */
+    private async timeScaleBuffer(buffer: AudioBuffer, playbackRate: number): Promise<AudioBuffer> {
+        if (playbackRate <= 0) {
+            throw new Error('playbackRate must be > 0');
+        }
+
+        // Calculate the length of the rendered buffer after rate change
+        const channels = buffer.numberOfChannels;
+        const sampleRate = buffer.sampleRate;
+        const scaledLength = Math.ceil(buffer.length / playbackRate);
+
+        // Use OfflineAudioContext for high-quality resampling
+        const offline = new OfflineAudioContext(channels, scaledLength, sampleRate);
+        const source = offline.createBufferSource();
+        source.buffer = buffer;
+        source.playbackRate.value = playbackRate;
+        source.connect(offline.destination);
+        source.start(0);
+        const rendered = await offline.startRendering();
+        return rendered;
+    }
 
 	/**
 	 * Write string to DataView
