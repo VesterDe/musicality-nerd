@@ -45,7 +45,6 @@
 		onClearLoop,
 		loopingChunkIndices = new Set<number>(),
 		onSeek,
-		onBeatsPerLineChange,
 		annotations = [],
 		onAnnotationCreated,
 		onAnnotationUpdated,
@@ -803,11 +802,6 @@
 		editingAnnotation = null;
 	}
 
-	function handleBeatsPerLineChange(event: Event) {
-		const target = event.target as HTMLInputElement;
-		const newValue = parseInt(target.value);
-		onBeatsPerLineChange?.(newValue);
-	}
 
 	function handleEditAnnotation(annotation: Annotation) {
 		editingAnnotation = annotation;
@@ -934,42 +928,22 @@
 	}
 </script>
 
+
 <div class="flex flex-col space-y-4">
-	<!-- Controls -->
+	<!-- Info Bar -->
 	<div class="bg-gray-800 rounded-lg p-4">
-		<div class="flex items-center justify-between">
-			<div class="flex items-center space-x-4">
-				<label class="flex items-center space-x-2">
-					<span class="text-sm text-gray-300">Beats per line:</span>
-					<input
-						type="number"
-						value={beatGrouping}
-						min="1"
-						max="16"
-						class="w-16 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm"
-						onchange={handleBeatsPerLineChange}
-					/>
-				</label>
-				<div class="text-sm text-gray-400">
-					Current: {Math.floor(currentTime / chunkDuration) + 1} / {totalChunks}
-				</div>
-			</div>
-		</div>
-		
-		<div class="mt-2 flex items-center space-x-4 text-xs text-gray-500">
-			<div class="flex items-center space-x-4">
-				<div class="text-sm text-gray-400">
-					<span>Duration: {effectiveDuration.toFixed(1)}s</span>
-					<span class="mx-2">•</span>
-					<span>Chunk Duration: {effectiveChunkDuration.toFixed(2)}s</span>
-					<span class="mx-2">•</span>
-					<span>Total Chunks: {totalChunks}</span>
-					<span class="mx-2">•</span>
-					<span>BPM: {targetBPM}</span>
-					<span class="mx-2">•</span>
-					<span>Offset: {beatOffset}ms</span>
-				</div>
-			</div>
+		<div class="mt-2 text-sm text-gray-400">
+			<span>Duration: {effectiveDuration.toFixed(1)}s</span>
+			<span class="mx-2">•</span>
+			<span>Chunk Duration: {effectiveChunkDuration.toFixed(2)}s</span>
+			<span class="mx-2">•</span>
+			<span>Total Chunks: {totalChunks}</span>
+			<span class="mx-2">•</span>
+			<span>BPM: {targetBPM}</span>
+			<span class="mx-2">•</span>
+			<span>Offset: {beatOffset}ms</span>
+      <span class="mx-2">•</span>
+      <span>Current: {Math.floor(currentTime / chunkDuration) + 1} / {totalChunks}</span>
 		</div>
 	</div>
 

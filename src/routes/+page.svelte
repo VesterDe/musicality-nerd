@@ -793,9 +793,7 @@
 		});
 	}
 
-	async function updateBeatsPerLine(beatsPerLine: number) {
-		await sessionStore.updateBeatsPerLine(beatsPerLine);
-	}
+
 
 	async function returnToSongList() {
 		if (!sessionStore.currentSession) return;
@@ -883,7 +881,7 @@
 <main class="min-h-screen bg-gray-900 text-white">
 	<!-- Header -->
 	<header class="bg-gray-800 border-b border-gray-700 p-4">
-		<div class="max-w-7xl mx-auto">
+		<div class="w-full">
 			{#if sessionStore.currentSession}
 				<div class="flex items-center justify-between">
 					<button
@@ -892,7 +890,7 @@
 					>
 						← Song List
 					</button>
-					<h2 class="text-lg font-semibold flex-1 text-center">{sessionStore.currentSession.filename}</h2>
+					<h2 class="text-lg font-semibold flex-1 mx-6 truncate text-center">{sessionStore.currentSession.filename}</h2>
 					<div class="text-sm text-gray-400">
 						Duration: {formatTime(sessionStore.duration)} • Beats: {sessionStore.currentSession.beats.length}
 					</div>
@@ -917,11 +915,12 @@
 			<div class="bg-gray-800 rounded-lg p-4 sticky top-0 z-10 shadow-lg border-b border-gray-700 backdrop-blur-sm">
 				<div class="flex items-center space-x-4">
 					<button 
-						class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors"
+						class="bg-blue-600 hover:bg-blue-700 p-3 rounded-full transition-colors"
+						title={sessionStore.isPlaying ? 'Pause' : 'Play'}
+						aria-label={sessionStore.isPlaying ? 'Pause' : 'Play'}
 						onclick={togglePlayback}
 					>
 						{sessionStore.isPlaying ? '⏸️' : '▶️'}
-						{sessionStore.isPlaying ? 'Pause' : 'Play'}
 					</button>
 					
 					<div class="flex-1">
@@ -949,25 +948,13 @@
 					</div>
 					
 					
-					{#if sessionStore.currentSession?.annotations && sessionStore.currentSession.annotations.length > 0}
-						<button
-							class="bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded-lg text-xs transition-colors"
-							onclick={async () => {
-								if (confirm('Are you sure you want to clear all annotations?')) {
-									await clearAllAnnotations();
-								}
-							}}
-							title="Clear all annotations"
-						>
-							Clear All ({sessionStore.currentSession.annotations.length})
-						</button>
-					{/if}
+
 				</div>
 			</div>
 
 			<!-- Spectrogram Display -->
 			{#if sessionStore.currentSession && !sessionStore.isSessionInitializing}
-				<SvgWaveformDisplay
+					<SvgWaveformDisplay
 					currentTime={sessionStore.currentTime}
 					bpm={sessionStore.bpm}
 					targetBPM={sessionStore.targetBPM}
@@ -978,7 +965,6 @@
 					onClearLoop={handleClearLoop}
 					{loopingChunkIndices}
 					onSeek={(time) => audioEngine.seekTo(time)}
-					onBeatsPerLineChange={updateBeatsPerLine}
 					annotations={previewAnnotation 
 						? [...(sessionStore.currentSession.annotations || []), previewAnnotation]
 						: (sessionStore.currentSession.annotations || [])}

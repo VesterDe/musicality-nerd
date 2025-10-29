@@ -151,6 +151,20 @@ export class SessionStore {
 	resetAnnotationCounter() {
 		this.annotationCounter = 1;
 	}
+
+	/**
+	 * Clear all annotations for the current session and reset counter
+	 */
+	async clearAllAnnotations() {
+		if (!this.currentSession || !this.persistenceService) return;
+		try {
+			const updatedSession = await this.persistenceService.clearAllAnnotations(this.currentSession.id);
+			this.currentSession = updatedSession;
+			this.resetAnnotationCounter();
+		} catch (error) {
+			console.error('Failed to clear all annotations:', error);
+		}
+	}
 	
 	// Session Management
 	setCurrentSession(session: TrackSession | null) {

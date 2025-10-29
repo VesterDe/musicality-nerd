@@ -55,11 +55,4 @@
 			Automatically scroll to follow the current playback position
 		</p>
 	</div>
-	
-	<!-- Future Display Options -->
-	<div class="pt-2 border-t border-gray-700">
-		<p class="text-xs text-gray-500 italic">
-			More display options coming soon...
-		</p>
-	</div>
 </div>
