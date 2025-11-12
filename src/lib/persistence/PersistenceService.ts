@@ -82,7 +82,8 @@ export class PersistenceService {
 			beatsPerLine: 4, // Default beats per line
 			beats: [],
 			annotations: [], // Initialize empty annotations array
-			targetBPM: 0 // Default target BPM (same as default BPM)
+			targetBPM: 0, // Default target BPM (same as default BPM)
+			rectsPerBeatMode: 'auto' // Default to auto mode
 		};
 
 		await this.saveSession(session);
@@ -193,6 +194,20 @@ export class PersistenceService {
 		}
 
 		session.beatsPerLine = beatsPerLine;
+		await this.saveSession(session);
+		return session;
+	}
+
+	/**
+	 * Update rectangles per beat mode (auto or manual value)
+	 */
+	async updateRectsPerBeatMode(sessionId: string, rectsPerBeatMode: 'auto' | number): Promise<TrackSession> {
+		const session = await this.loadSession(sessionId);
+		if (!session) {
+			throw new Error('Session not found');
+		}
+
+		session.rectsPerBeatMode = rectsPerBeatMode;
 		await this.saveSession(session);
 		return session;
 	}

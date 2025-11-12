@@ -21,6 +21,7 @@
 		audioEngine: AudioEngine;
 		beatOffset: number;
 		beatsPerLine: number;
+		rectsPerBeatMode?: 'auto' | number;
 		onChunkLoop?: (chunkIndex: number, startTime: number, endTime: number) => void;
 		onClearLoop?: () => void;
 		loopingChunkIndices?: Set<number>;
@@ -41,6 +42,7 @@
 		audioEngine,
 		beatOffset = 0,
 		beatsPerLine = 16,
+		rectsPerBeatMode = 'auto',
 		onChunkLoop,
 		onClearLoop,
 		loopingChunkIndices = new Set<number>(),
@@ -108,11 +110,45 @@
 	// Get responsive container width  
 	const containerWidth = $derived(waveformContainer?.offsetWidth || 800);
 
-	// Compute target bars dynamically to limit DOM nodes while preserving detail
-	const targetBars = $derived.by(() => {
-		const barsPerTwoPixels = Math.floor(containerWidth / 2);
-		return Math.max(120, Math.min(360, barsPerTwoPixels));
+	// Helper function to find nearest power of two below or equal to n
+	function nearestPow2BelowOrEqual(n: number): number {
+		if (n <= 0) return 1;
+		return Math.pow(2, Math.floor(Math.log2(n)));
+	}
+
+	// Helper function to find nearest power of two above or equal to n
+	function nearestPow2AboveOrEqual(n: number): number {
+		if (n <= 0) return 1;
+		return Math.pow(2, Math.ceil(Math.log2(n)));
+	}
+
+	const MAX_PER_BEAT = 128; // Guardrail to prevent DOM explosion
+	const MIN_PER_BEAT = 8; // Minimum for auto mode
+
+	// Compute rectangles per beat using power-of-two constraint
+	const rectsPerBeat = $derived.by(() => {
+		// If manual mode, use the specified value (must be power of two)
+		if (rectsPerBeatMode !== 'auto' && typeof rectsPerBeatMode === 'number') {
+			return rectsPerBeatMode;
+		}
+		
+		// Auto mode: compute desired density based on viewport width
+		const pixelsPerBeat = containerWidth / beatGrouping;
+		const desired = Math.max(1, Math.floor(pixelsPerBeat / 2)); // ~2px per rect
+		const capped = Math.min(MAX_PER_BEAT, desired);
+		const pow2 = nearestPow2BelowOrEqual(capped);
+		
+		// Ensure we meet the minimum requirement while keeping it a power of two
+		if (pow2 >= MIN_PER_BEAT) {
+			return pow2;
+		} else {
+			// If pow2 is less than min, find the smallest power of two >= MIN_PER_BEAT
+			return nearestPow2AboveOrEqual(MIN_PER_BEAT);
+		}
 	});
+
+	// Compute total target bars as beats per line * rectangles per beat
+	const targetBars = $derived(beatGrouping * rectsPerBeat);
 	
 	const waveformConfig = $derived.by((): WaveformConfig => ({
 		width: containerWidth,

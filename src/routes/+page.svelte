@@ -964,6 +964,7 @@
 					{audioEngine}
 					beatOffset={sessionStore.beatOffset}
 					beatsPerLine={sessionStore.currentSession.beatsPerLine}
+					rectsPerBeatMode={sessionStore.currentSession.rectsPerBeatMode ?? 'auto'}
 					onChunkLoop={handleChunkLoop}
 					onClearLoop={handleClearLoop}
 					{loopingChunkIndices}

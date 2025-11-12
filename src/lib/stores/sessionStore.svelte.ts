@@ -134,6 +134,21 @@ export class SessionStore {
 			console.error('Failed to update beats per line:', error);
 		}
 	}
+
+	// Rectangles Per Beat Management
+	async updateRectsPerBeatMode(value: 'auto' | number) {
+		if (!this.currentSession || !this.persistenceService) return;
+		
+		try {
+			const updatedSession = await this.persistenceService.updateRectsPerBeatMode(
+				this.currentSession.id, 
+				value
+			);
+			this.currentSession = updatedSession;
+		} catch (error) {
+			console.error('Failed to update rects per beat mode:', error);
+		}
+	}
 	
 	// Annotation Management
 	toggleAnnotationMode() {

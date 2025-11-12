@@ -30,6 +30,7 @@ export interface TrackSession {
 	beats: Beat[];
 	annotations: Annotation[]; // Array of annotations with absolute timing
 	targetBPM: number; // Target BPM for practice
+	rectsPerBeatMode?: 'auto' | number; // 'auto' for automatic selection between 8 and upper limit, or a number for manual value
 }
 
 export interface SpectrogramConfig {

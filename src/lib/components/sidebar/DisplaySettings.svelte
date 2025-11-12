@@ -6,6 +6,20 @@
 		const clampedValue = Math.max(1, Math.min(512, value));
 		sessionStore.updateBeatsPerLine(clampedValue);
 	}
+
+	function handleRectsPerBeatChange(value: string) {
+		if (value === 'auto') {
+			sessionStore.updateRectsPerBeatMode('auto');
+		} else {
+			sessionStore.updateRectsPerBeatMode(Number(value));
+		}
+	}
+
+	const beatsPerLineOptions = [1, 2, 4, 8, 16, 32, 64, 128, 256];
+	const rectsPerBeatManualOptions = [8, 16, 32, 64, 128];
+
+	$: rectsPerBeatMode = sessionStore.currentSession?.rectsPerBeatMode ?? 'auto';
+	$: rectsPerBeatValue = rectsPerBeatMode === 'auto' ? 'auto' : String(rectsPerBeatMode);
 </script>
 
 <div class="space-y-4">
@@ -14,25 +28,39 @@
 		<label for="beats-per-line" class="text-sm font-medium text-gray-300 block">
 			Beats Per Line
 		</label>
-		<input 
-			type="number"
+		<select
 			id="beats-per-line"
 			value={sessionStore.beatsPerLine}
-			onchange={(e) => handleBeatsPerLineChange(Number((e.target as HTMLInputElement).value))}
-			oninput={(e) => {
-				const target = e.target as HTMLInputElement;
-				// Prevent non-numeric input
-				if (target.value && isNaN(Number(target.value))) {
-					target.value = String(sessionStore.beatsPerLine);
-				}
-			}}
-			min="1"
-			max="64"
-			step="1"
-			class="w-full bg-gray-700 text-white px-3 py-1.5 rounded text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-		/>
+			onchange={(e) => handleBeatsPerLineChange(Number((e.target as HTMLSelectElement).value))}
+			class="w-full bg-gray-700 text-white px-3 py-1.5 rounded text-sm"
+		>
+			{#each beatsPerLineOptions as option}
+				<option value={option}>{option}</option>
+			{/each}
+		</select>
 		<p class="text-xs text-gray-400">
 			Controls how many beats are displayed per line in the waveform
+		</p>
+	</div>
+
+	<!-- Rects Per Beat -->
+	<div class="space-y-2">
+		<label for="rects-per-beat" class="text-sm font-medium text-gray-300 block">
+			Rects per Beat
+		</label>
+		<select
+			id="rects-per-beat"
+			value={rectsPerBeatValue}
+			onchange={(e) => handleRectsPerBeatChange((e.target as HTMLSelectElement).value)}
+			class="w-full bg-gray-700 text-white px-3 py-1.5 rounded text-sm"
+		>
+			<option value="auto">Auto</option>
+			{#each rectsPerBeatManualOptions as option}
+				<option value={option}>{option}</option>
+			{/each}
+		</select>
+		<p class="text-xs text-gray-400">
+			Auto chooses between 8 and upper limit based on viewport. Manual sets a fixed power-of-two value.
 		</p>
 	</div>
 	
