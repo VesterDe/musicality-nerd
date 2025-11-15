@@ -2,13 +2,15 @@
 	import { sessionStore } from '$lib/stores/sessionStore.svelte';
 	import type { BpmDetector } from '$lib/audio/BpmDetector';
 	import type { AudioEngine } from '$lib/audio/AudioEngine';
+	import type { PersistenceService } from '$lib/persistence/PersistenceService';
 	
 	interface Props {
 		audioEngine: AudioEngine;
 		bpmDetector: BpmDetector;
+		persistenceService: PersistenceService;
 	}
 	
-	let { audioEngine, bpmDetector }: Props = $props();
+	let { audioEngine, bpmDetector, persistenceService }: Props = $props();
 	
 	async function recalculateBpmFromSong() {
 		if (!sessionStore.currentSession) return;
@@ -116,4 +118,43 @@
 			</div>
 		</div>
 	</div>
+	
+	<!-- Stem Controls (only for stem sessions) -->
+	{#if sessionStore.currentSession?.mode === 'stem' && sessionStore.currentSession.stems}
+		<div class="space-y-2 pt-4 border-t border-gray-700">
+			<label class="text-sm font-medium text-gray-300 block">Stem Controls</label>
+			<div class="space-y-2">
+				{#each sessionStore.currentSession.stems as stem, index}
+					<button
+						class="w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 justify-between
+							{stem.enabled 
+								? 'bg-blue-600 hover:bg-blue-700 text-white' 
+								: 'bg-gray-700 hover:bg-gray-600 text-gray-300'}"
+						onclick={async () => {
+							const newEnabled = !stem.enabled;
+							audioEngine.setStemEnabled(index, newEnabled);
+							// Update session state
+							stem.enabled = newEnabled;
+							sessionStore.setCurrentSession({ ...sessionStore.currentSession });
+							// Persist the change
+							await persistenceService.updateStemEnabled(sessionStore.currentSession.id, stem.id, newEnabled);
+						}}
+					>
+						<div class="flex items-center gap-2 flex-1 min-w-0">
+							<div 
+								class="w-3 h-3 rounded-full flex-shrink-0"
+								style="background-color: {stem.color || '#3b82f6'}"
+							></div>
+							<span class="truncate" title={stem.filename}>
+								{stem.filename.replace(/\.[^/.]+$/, '')}
+							</span>
+						</div>
+						<span class="text-xs opacity-75 flex-shrink-0">
+							{stem.enabled ? '✓' : '✗'}
+						</span>
+					</button>
+				{/each}
+			</div>
+		</div>
+	{/if}
 </div>

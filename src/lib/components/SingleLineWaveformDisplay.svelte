@@ -8,6 +8,9 @@
 		bounds: ChunkBounds;
 		isSpecialChunk: boolean;
 		waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean; annotationColors?: Array<{ color: string; startY: number; endY: number }> }>;
+		waveformBarsPerStem?: Array<Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }>>;
+		stemColors?: string[];
+		stemEnabled?: boolean[];
 		beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }>;
 		headerInfo: string;
 		startTime: number;
@@ -42,6 +45,9 @@
 		bounds,
 		isSpecialChunk,
 		waveformBars,
+		waveformBarsPerStem,
+		stemColors,
+		stemEnabled,
 		beatLines,
 		headerInfo,
 		startTime,
@@ -142,39 +148,60 @@
 			{/if}
 			
 			<!-- Render song waveform bars only -->
-			{#each waveformBars as bar}
-				{#if !bar.isEmpty}
-					{#if bar.annotationColors && bar.annotationColors.length > 0}
-						{#each bar.annotationColors as colorSection}
-							<rect
-								x={bar.x}
-								y={colorSection.startY}
-								width={bar.width}
-								height={colorSection.endY - colorSection.startY}
-								fill={colorSection.color}
-								opacity="0.4"
-							/>
-							<rect
-								x={bar.x}
-								y={Math.max(bar.y, colorSection.startY)}
-								width={bar.width}
-								height={Math.min(bar.y + bar.height, colorSection.endY) - Math.max(bar.y, colorSection.startY)}
-								fill={colorSection.color}
-								opacity="1"
-							/>
+			{#if waveformBarsPerStem && waveformBarsPerStem.length > 0 && stemColors && stemEnabled}
+				<!-- Stem mode: render overlayed stems -->
+				{#each waveformBarsPerStem as stemBars, stemIndex}
+					{#if stemEnabled[stemIndex]}
+						{#each stemBars as bar}
+							{#if !bar.isEmpty}
+								<rect
+									x={bar.x}
+									y={bar.y}
+									width={bar.width}
+									height={bar.height}
+									fill={stemColors[stemIndex] || '#3b82f6'}
+									opacity="0.25"
+								/>
+							{/if}
 						{/each}
-					{:else}
-						<rect
-							x={bar.x}
-							y={bar.y}
-							width={bar.width}
-							height={bar.height}
-							fill="#3b82f6"
-							opacity="0.8"
-						/>
 					{/if}
-				{/if}
-			{/each}
+				{/each}
+			{:else}
+				<!-- Single track mode -->
+				{#each waveformBars as bar}
+					{#if !bar.isEmpty}
+						{#if bar.annotationColors && bar.annotationColors.length > 0}
+							{#each bar.annotationColors as colorSection}
+								<rect
+									x={bar.x}
+									y={colorSection.startY}
+									width={bar.width}
+									height={colorSection.endY - colorSection.startY}
+									fill={colorSection.color}
+									opacity="0.4"
+								/>
+								<rect
+									x={bar.x}
+									y={Math.max(bar.y, colorSection.startY)}
+									width={bar.width}
+									height={Math.min(bar.y + bar.height, colorSection.endY) - Math.max(bar.y, colorSection.startY)}
+									fill={colorSection.color}
+									opacity="1"
+								/>
+							{/each}
+						{:else}
+							<rect
+								x={bar.x}
+								y={bar.y}
+								width={bar.width}
+								height={bar.height}
+								fill="#3b82f6"
+								opacity="0.8"
+							/>
+						{/if}
+					{/if}
+				{/each}
+			{/if}
 			
 			<!-- Song start marker line -->
 			{@const songStartX = beatOffset > 0 
@@ -221,37 +248,58 @@
 			{/each}
 
 			<!-- Waveform Bars -->
-			{#each waveformBars as bar}
-				{#if bar.annotationColors && bar.annotationColors.length > 0}
-					{#each bar.annotationColors as colorSection}
+			{#if waveformBarsPerStem && waveformBarsPerStem.length > 0 && stemColors && stemEnabled}
+				<!-- Stem mode: render overlayed stems -->
+				{#each waveformBarsPerStem as stemBars, stemIndex}
+					{#if stemEnabled[stemIndex]}
+						{#each stemBars as bar}
+							{#if !bar.isEmpty}
+								<rect
+									x={bar.x}
+									y={bar.y}
+									width={bar.width}
+									height={bar.height}
+									fill={stemColors[stemIndex] || '#3b82f6'}
+									opacity="0.25"
+								/>
+							{/if}
+						{/each}
+					{/if}
+				{/each}
+			{:else}
+				<!-- Single track mode: render normal bars -->
+				{#each waveformBars as bar}
+					{#if bar.annotationColors && bar.annotationColors.length > 0}
+						{#each bar.annotationColors as colorSection}
+							<rect
+								x={bar.x}
+								y={colorSection.startY}
+								width={bar.width}
+								height={colorSection.endY - colorSection.startY}
+								fill={colorSection.color}
+								opacity="0.4"
+							/>
+							<rect
+								x={bar.x}
+								y={Math.max(bar.y, colorSection.startY)}
+								width={bar.width}
+								height={Math.min(bar.y + bar.height, colorSection.endY) - Math.max(bar.y, colorSection.startY)}
+								fill={colorSection.color}
+								opacity="1"
+							/>
+						{/each}
+					{:else}
 						<rect
 							x={bar.x}
-							y={colorSection.startY}
+							y={bar.y}
 							width={bar.width}
-							height={colorSection.endY - colorSection.startY}
-							fill={colorSection.color}
-							opacity="0.4"
+							height={bar.height}
+							fill="#3b82f6"
+							opacity="0.8"
 						/>
-						<rect
-							x={bar.x}
-							y={Math.max(bar.y, colorSection.startY)}
-							width={bar.width}
-							height={Math.min(bar.y + bar.height, colorSection.endY) - Math.max(bar.y, colorSection.startY)}
-							fill={colorSection.color}
-							opacity="1"
-						/>
-					{/each}
-				{:else}
-					<rect
-						x={bar.x}
-						y={bar.y}
-						width={bar.width}
-						height={bar.height}
-						fill="#3b82f6"
-						opacity="0.8"
-					/>
-				{/if}
-			{/each}
+					{/if}
+				{/each}
+			{/if}
 
 			<!-- Lightweight overlays for the active chunk only -->
 			{#if isActiveChunk}

@@ -1,5 +1,11 @@
 import type { AudioAnalysisData } from '../types';
 
+interface StemSource {
+	sourceNode: AudioBufferSourceNode;
+	gainNode: GainNode;
+	enabled: boolean;
+}
+
 export class AudioEngine {
 	private audioContext: AudioContext | null = null;
 	private audioBuffer: AudioBuffer | null = null;
@@ -10,6 +16,11 @@ export class AudioEngine {
 	private pauseTime = 0;
 	private isPlaying = false;
 	private updateLoopRunning = false;
+	
+	// Stem mode support
+	private stemBuffers: AudioBuffer[] = [];
+	private stemSources: StemSource[] = [];
+	private isStemMode = false;
 	
 	// Playback rate control
 	private playbackRate = 1.0;
@@ -60,10 +71,51 @@ export class AudioEngine {
 			throw new Error('Audio context not initialized');
 		}
 
+		// Clear stem mode state
+		this.isStemMode = false;
+		this.stemBuffers = [];
+		this.stemSources = [];
+
 		try {
 			this.audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
 		} catch (error) {
 			throw new Error(`Failed to decode audio: ${error}`);
+		}
+	}
+
+	/**
+	 * Load multiple stems from ArrayBuffers
+	 */
+	async loadStems(buffers: ArrayBuffer[]): Promise<void> {
+		await this.initialize();
+		
+		if (!this.audioContext) {
+			throw new Error('Audio context not initialized');
+		}
+
+		if (buffers.length < 2) {
+			throw new Error('Stem mode requires at least 2 audio files');
+		}
+
+		// Clear single-track state
+		this.audioBuffer = null;
+		this.sourceNode = null;
+
+		// Enable stem mode
+		this.isStemMode = true;
+		this.stemBuffers = [];
+		this.stemSources = [];
+
+		try {
+			// Decode all buffers
+			this.stemBuffers = await Promise.all(
+				buffers.map(buffer => this.audioContext!.decodeAudioData(buffer))
+			);
+
+			// Use first stem as canonical buffer for duration/BPM detection
+			this.audioBuffer = this.stemBuffers[0];
+		} catch (error) {
+			throw new Error(`Failed to decode stems: ${error}`);
 		}
 	}
 
@@ -78,6 +130,22 @@ export class AudioEngine {
 		await this.initialize();
 
 		if (this.isPlaying) return;
+
+		if (this.isStemMode) {
+			await this.playStems();
+		} else {
+			await this.playSingle();
+		}
+
+		// Start time update loop
+		this.startTimeUpdateLoop();
+	}
+
+	/**
+	 * Play single-track audio
+	 */
+	private async playSingle(): Promise<void> {
+		if (!this.audioContext || !this.audioBuffer) return;
 
 		// Clean up any existing source node
 		if (this.sourceNode) {
@@ -142,43 +210,158 @@ export class AudioEngine {
 			this.isPlaying = false;
 			throw error;
 		}
+	}
 
-		// Start time update loop
-		this.startTimeUpdateLoop();
+	/**
+	 * Play multiple stems in sync
+	 */
+	private async playStems(): Promise<void> {
+		if (!this.audioContext || this.stemBuffers.length === 0) return;
+
+		// Clean up existing stem sources
+		this.cleanupStemSources();
+
+		// Create a mixer gain node to combine all stems (signals automatically sum)
+		const mixerGain = this.audioContext.createGain();
+		mixerGain.connect(this.analyserNode!);
+
+		// Start playback from current position
+		let offset = Number.isNaN(this.pauseTime) ? 0 : this.pauseTime;
+		offset = Math.max(0, Math.min(offset, this.getDuration()));
+		
+		if (this.loopEnabled && this.loopSegments.length > 0) {
+			let targetSegmentIndex = 0;
+			for (let i = 0; i < this.loopSegments.length; i++) {
+				const segment = this.loopSegments[i];
+				if (offset >= segment.start && offset <= segment.end) {
+					targetSegmentIndex = i;
+					break;
+				}
+			}
+			this.currentLoopSegmentIndex = targetSegmentIndex;
+			const targetSegment = this.loopSegments[targetSegmentIndex];
+			offset = Math.max(targetSegment.start, Math.min(targetSegment.end, offset));
+		}
+
+		// Create source nodes for each stem
+		let endedCount = 0;
+		const totalStems = this.stemBuffers.length;
+
+		for (let i = 0; i < this.stemBuffers.length; i++) {
+			const buffer = this.stemBuffers[i];
+			const sourceNode = this.audioContext.createBufferSource();
+			const gainNode = this.audioContext.createGain();
+			
+			sourceNode.buffer = buffer;
+			sourceNode.playbackRate.value = this.playbackRate;
+			sourceNode.connect(gainNode);
+			
+			// Connect each stem's gain node to the mixer
+			gainNode.connect(mixerGain);
+			
+			// Set gain based on enabled state (stored in stemSources will be set by setStemEnabled)
+			// For now, assume all stems are enabled initially
+			gainNode.gain.value = 1.0;
+
+			// Handle playback end - only trigger when all stems end
+			sourceNode.onended = () => {
+				endedCount++;
+				if (endedCount === totalStems) {
+					if (this.loopEnabled && this.isPlaying && this.loopSegments.length > 0) {
+						this.pauseTime = this.loopSegments[0].start;
+						this.currentLoopSegmentIndex = 0;
+						this.play();
+					} else {
+						this.isPlaying = false;
+						this.onEnded?.();
+					}
+				}
+			};
+
+			try {
+				sourceNode.start(0, offset);
+				this.stemSources.push({
+					sourceNode,
+					gainNode,
+					enabled: true
+				});
+			} catch (error) {
+				console.error(`Failed to start stem ${i}:`, error);
+			}
+		}
+
+		// Adjust startTime calculation for playback rate
+		this.startTime = this.audioContext.currentTime - (offset / this.playbackRate);
+		this.isPlaying = true;
+	}
+
+	/**
+	 * Clean up stem sources
+	 */
+	private cleanupStemSources(): void {
+		for (const stemSource of this.stemSources) {
+			try {
+				stemSource.sourceNode.stop();
+				stemSource.sourceNode.disconnect();
+				stemSource.gainNode.disconnect();
+			} catch (e) {
+				// Ignore errors if already stopped/disconnected
+			}
+		}
+		this.stemSources = [];
 	}
 
 	/**
 	 * Pause playback
 	 */
 	pause(): void {
-		if (!this.isPlaying || !this.sourceNode || !this.audioContext) return;
+		if (!this.isPlaying || !this.audioContext) return;
 
-		// Calculate pause time accounting for playback rate
-		const elapsedTime = this.audioContext.currentTime - this.startTime;
-		const currentPlaybackTime = elapsedTime * this.playbackRate;
-		
-		try {
-			this.sourceNode.stop();
-			this.sourceNode.disconnect();
-		} catch (e) {
-			// Ignore errors if already stopped/disconnected
+		if (this.isStemMode) {
+			// Calculate pause time accounting for playback rate
+			const elapsedTime = this.audioContext.currentTime - this.startTime;
+			const currentPlaybackTime = elapsedTime * this.playbackRate;
+			
+			// Stop all stem sources
+			this.cleanupStemSources();
+			
+			this.pauseTime = currentPlaybackTime;
+			this.isPlaying = false;
+			this.updateLoopRunning = false;
+		} else {
+			if (!this.sourceNode) return;
+
+			// Calculate pause time accounting for playback rate
+			const elapsedTime = this.audioContext.currentTime - this.startTime;
+			const currentPlaybackTime = elapsedTime * this.playbackRate;
+			
+			try {
+				this.sourceNode.stop();
+				this.sourceNode.disconnect();
+			} catch (e) {
+				// Ignore errors if already stopped/disconnected
+			}
+			
+			this.pauseTime = currentPlaybackTime;
+			this.isPlaying = false;
+			this.updateLoopRunning = false;
 		}
-		
-		this.pauseTime = currentPlaybackTime;
-		this.isPlaying = false;
-		this.updateLoopRunning = false;
 	}
 
 	/**
 	 * Stop playback and reset to beginning
 	 */
 	stop(): void {
-		if (this.sourceNode) {
-			try {
-				this.sourceNode.stop();
-				this.sourceNode.disconnect();
-			} catch (e) {
-				// Ignore errors if already stopped/disconnected
+		if (this.isStemMode) {
+			this.cleanupStemSources();
+		} else {
+			if (this.sourceNode) {
+				try {
+					this.sourceNode.stop();
+					this.sourceNode.disconnect();
+				} catch (e) {
+					// Ignore errors if already stopped/disconnected
+				}
 			}
 		}
 		this.isPlaying = false;
@@ -281,25 +464,43 @@ export class AudioEngine {
 		// Clamp rate to reasonable bounds
 		const newRate = Math.max(0.25, Math.min(2.0, rate));
 		
-		// If currently playing and rate is changing, we need to adjust startTime
-		if (this.sourceNode && this.isPlaying && this.audioContext && newRate !== this.playbackRate) {
-			// Calculate current position before rate change
-			const currentPosition = this.getCurrentTime();
-			
-			// Update the playback rate
-			const oldRate = this.playbackRate;
-			this.playbackRate = newRate;
-			this.sourceNode.playbackRate.value = this.playbackRate;
-			
-			// Recalculate startTime so getCurrentTime() returns the same position
-			// We want: currentPosition = (audioContext.currentTime - newStartTime) * newRate
-			// So: newStartTime = audioContext.currentTime - (currentPosition / newRate)
-			this.startTime = this.audioContext.currentTime - (currentPosition / this.playbackRate);
+		if (this.isStemMode) {
+			// For stem mode, update all stem sources
+			if (this.isPlaying && this.audioContext && newRate !== this.playbackRate) {
+				const currentPosition = this.getCurrentTime();
+				this.playbackRate = newRate;
+				
+				// Update playback rate for all stem sources
+				for (const stemSource of this.stemSources) {
+					stemSource.sourceNode.playbackRate.value = this.playbackRate;
+				}
+				
+				// Recalculate startTime
+				this.startTime = this.audioContext.currentTime - (currentPosition / this.playbackRate);
+			} else {
+				this.playbackRate = newRate;
+			}
 		} else {
-			// Not playing, just update the rate
-			this.playbackRate = newRate;
-			if (this.sourceNode) {
+			// If currently playing and rate is changing, we need to adjust startTime
+			if (this.sourceNode && this.isPlaying && this.audioContext && newRate !== this.playbackRate) {
+				// Calculate current position before rate change
+				const currentPosition = this.getCurrentTime();
+				
+				// Update the playback rate
+				const oldRate = this.playbackRate;
+				this.playbackRate = newRate;
 				this.sourceNode.playbackRate.value = this.playbackRate;
+				
+				// Recalculate startTime so getCurrentTime() returns the same position
+				// We want: currentPosition = (audioContext.currentTime - newStartTime) * newRate
+				// So: newStartTime = audioContext.currentTime - (currentPosition / newRate)
+				this.startTime = this.audioContext.currentTime - (currentPosition / this.playbackRate);
+			} else {
+				// Not playing, just update the rate
+				this.playbackRate = newRate;
+				if (this.sourceNode) {
+					this.sourceNode.playbackRate.value = this.playbackRate;
+				}
 			}
 		}
 	}
@@ -395,41 +596,101 @@ export class AudioEngine {
 		
 		if (!this.audioContext || !this.audioBuffer || !this.isPlaying) return;
 		
-		// Stop current source
-		if (this.sourceNode) {
-			try {
-				this.sourceNode.stop();
-				this.sourceNode.disconnect();
-			} catch (e) {
-				// Ignore errors if already stopped/disconnected
+		if (this.isStemMode) {
+			// For stem mode, preserve enabled state before cleanup
+			const preservedEnabledState = this.stemSources.map(s => s.enabled);
+			
+			// Recreate all stem sources at the new position
+			this.cleanupStemSources();
+			
+			// Create a mixer gain node to combine all stems
+			const mixerGain = this.audioContext.createGain();
+			mixerGain.connect(this.analyserNode!);
+			
+			let endedCount = 0;
+			const totalStems = this.stemBuffers.length;
+			
+			for (let i = 0; i < this.stemBuffers.length; i++) {
+				const buffer = this.stemBuffers[i];
+				const sourceNode = this.audioContext.createBufferSource();
+				const gainNode = this.audioContext.createGain();
+				
+				sourceNode.buffer = buffer;
+				sourceNode.playbackRate.value = this.playbackRate;
+				sourceNode.connect(gainNode);
+				gainNode.connect(mixerGain);
+				
+				// Set gain based on preserved enabled state
+				const enabled = preservedEnabledState[i] ?? true;
+				gainNode.gain.value = enabled ? 1.0 : 0.0;
+				
+				// Handle playback end
+				sourceNode.onended = () => {
+					endedCount++;
+					if (endedCount === totalStems) {
+						if (this.loopEnabled && this.isPlaying && this.loopSegments.length > 0) {
+							this.pauseTime = this.loopSegments[0].start;
+							this.currentLoopSegmentIndex = 0;
+							this.play();
+						} else {
+							this.isPlaying = false;
+							this.onEnded?.();
+						}
+					}
+				};
+				
+				try {
+					sourceNode.start(0, clampedTime);
+					this.stemSources.push({
+						sourceNode,
+						gainNode,
+						enabled: enabled
+					});
+				} catch (error) {
+					console.error(`Failed to jump stem ${i}:`, error);
+				}
 			}
-		}
-		
-		// Create new source node and start at the new position
-		this.sourceNode = this.audioContext.createBufferSource();
-		this.sourceNode.buffer = this.audioBuffer;
-		this.sourceNode.playbackRate.value = this.playbackRate;
-		this.sourceNode.connect(this.analyserNode!);
-		
-		// Handle playback end for the new source
-		this.sourceNode.onended = () => {
-			if (this.loopEnabled && this.isPlaying && this.loopSegments.length > 0) {
-				// Restart from first loop segment
-				this.pauseTime = this.loopSegments[0].start;
-				this.currentLoopSegmentIndex = 0;
-				this.play();
-			} else {
-				this.isPlaying = false;
-				this.onEnded?.();
-			}
-		};
-		
-		try {
-			this.sourceNode.start(0, clampedTime);
+			
 			// Adjust startTime calculation for playback rate
 			this.startTime = this.audioContext.currentTime - (clampedTime / this.playbackRate);
-		} catch (error) {
-			console.error('Failed to jump to segment:', error);
+		} else {
+			// Single track mode
+			// Stop current source
+			if (this.sourceNode) {
+				try {
+					this.sourceNode.stop();
+					this.sourceNode.disconnect();
+				} catch (e) {
+					// Ignore errors if already stopped/disconnected
+				}
+			}
+			
+			// Create new source node and start at the new position
+			this.sourceNode = this.audioContext.createBufferSource();
+			this.sourceNode.buffer = this.audioBuffer;
+			this.sourceNode.playbackRate.value = this.playbackRate;
+			this.sourceNode.connect(this.analyserNode!);
+			
+			// Handle playback end for the new source
+			this.sourceNode.onended = () => {
+				if (this.loopEnabled && this.isPlaying && this.loopSegments.length > 0) {
+					// Restart from first loop segment
+					this.pauseTime = this.loopSegments[0].start;
+					this.currentLoopSegmentIndex = 0;
+					this.play();
+				} else {
+					this.isPlaying = false;
+					this.onEnded?.();
+				}
+			};
+			
+			try {
+				this.sourceNode.start(0, clampedTime);
+				// Adjust startTime calculation for playback rate
+				this.startTime = this.audioContext.currentTime - (clampedTime / this.playbackRate);
+			} catch (error) {
+				console.error('Failed to jump to segment:', error);
+			}
 		}
 	}
 
@@ -511,6 +772,49 @@ export class AudioEngine {
 			}
 		};
 		requestAnimationFrame(updateTime);
+	}
+
+	/**
+	 * Set enabled state for a specific stem (by index)
+	 */
+	setStemEnabled(index: number, enabled: boolean): void {
+		if (!this.isStemMode || index < 0 || index >= this.stemSources.length) {
+			return;
+		}
+
+		const stemSource = this.stemSources[index];
+		if (stemSource) {
+			stemSource.enabled = enabled;
+			// Set gain to 0 when disabled, 1 when enabled
+			stemSource.gainNode.gain.value = enabled ? 1.0 : 0.0;
+		}
+	}
+
+	/**
+	 * Get enabled state for all stems
+	 */
+	getStemsState(): boolean[] {
+		if (!this.isStemMode) {
+			return [];
+		}
+		return this.stemSources.map(source => source.enabled);
+	}
+
+	/**
+	 * Get all stem buffers (for visualization)
+	 */
+	getStemBuffers(): AudioBuffer[] {
+		if (!this.isStemMode) {
+			return [];
+		}
+		return [...this.stemBuffers];
+	}
+
+	/**
+	 * Check if in stem mode
+	 */
+	get isInStemMode(): boolean {
+		return this.isStemMode;
 	}
 
 	/**

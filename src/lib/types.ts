@@ -18,9 +18,17 @@ export interface Annotation {
 	rowIndex?: number; // For vertical stacking when annotations overlap
 }
 
+export interface Stem {
+	id: string;
+	filename: string;
+	mp3Blob: ArrayBuffer;
+	enabled: boolean; // Whether this stem is currently playing
+	color?: string; // Optional color for visualization
+}
+
 export interface TrackSession {
 	id: string;
-	mp3Blob: ArrayBuffer;
+	mp3Blob?: ArrayBuffer; // Optional for backward compatibility - required when mode === 'single', not used when mode === 'stem'
 	filename: string;
 	created: string; // ISO date string
 	bpm: number;
@@ -31,6 +39,8 @@ export interface TrackSession {
 	annotations: Annotation[]; // Array of annotations with absolute timing
 	targetBPM: number; // Target BPM for practice
 	rectsPerBeatMode?: 'auto' | number; // 'auto' for automatic selection between 8 and upper limit, or a number for manual value
+	mode?: 'single' | 'stem'; // Session mode - defaults to 'single' for backward compatibility
+	stems?: Stem[]; // Array of stems for stem mode sessions
 }
 
 export interface SpectrogramConfig {

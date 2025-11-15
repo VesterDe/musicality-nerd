@@ -7,6 +7,7 @@
 	import { sessionStore } from '$lib/stores/sessionStore.svelte';
 	import SvgWaveformDisplay from '$lib/components/SvgWaveformDisplay.svelte';
 	import SongList from '$lib/components/SongList.svelte';
+	import StemList from '$lib/components/StemList.svelte';
 	import Sidebar from '$lib/components/sidebar/Sidebar.svelte';
 	import type { TrackSession, Annotation } from '$lib/types';
 	let { data } = $props();
@@ -23,6 +24,7 @@
 	let loopingChunkIndices = $state(new Set<number>());
 	let isAnnotationModalOpen = $state(false);
 	let isDraggingProgress = $state(false);
+	let selectedMode: 'normal' | 'stem' | null = $state(null); // Mode selector state
 	
 	// Annotation mode state (some in store, some local)
 	let activeAnnotationSession: { startTime: number; id: string } | null = $state(null);
@@ -120,6 +122,12 @@
 	}
 
 	async function loadSessionData(session: TrackSession): Promise<void> {
+		// Use stem loader for stem sessions
+		if (session.mode === 'stem') {
+			await loadStemSessionData(session);
+			return;
+		}
+
 		// Ensure backwards compatibility for annotations
 		if (!session.annotations) {
 			session.annotations = [];
@@ -128,8 +136,10 @@
 		// Set session early so the main UI can render without waiting for audio decode
 		sessionStore.setCurrentSession(session);
 		
-		// Load audio first
-		await audioEngine.loadTrack(session.mp3Blob);
+		// Load audio first (single track mode)
+		if (session.mp3Blob) {
+			await audioEngine.loadTrack(session.mp3Blob);
+		}
 		const audioDuration = audioEngine.getDuration();
 		sessionStore.setDuration(audioDuration);
 		
@@ -247,6 +257,143 @@
 		} finally {
 			sessionStore.setIsSessionInitializing(false);
 		}
+	}
+
+	async function handleStemFilesDrop(files: FileList) {
+		// Validate files
+		const audioFiles = Array.from(files).filter(file => file.type.startsWith('audio/'));
+		if (audioFiles.length < 2) {
+			alert('Stem mode requires at least 2 audio files');
+			return;
+		}
+
+		try {
+			console.time('handleStemFilesDrop');
+			sessionStore.setIsSessionInitializing(true);
+			
+			console.time('createStemSession');
+			// Create new stem session
+			const newSession = await persistenceService.createStemSession(files as unknown as FileList);
+			console.timeEnd('createStemSession');
+			
+			console.time('loadStems');
+			// Load all stems
+			const stemBuffers = newSession.stems!.map(stem => stem.mp3Blob);
+			await audioEngine.loadStems(stemBuffers);
+			const audioDuration = audioEngine.getDuration();
+			sessionStore.setDuration(audioDuration);
+			console.timeEnd('loadStems');
+			
+			// Initialize local state
+			let finalBpm = 120; // Default BPM
+			let finalBeatOffset = 0; // Default offset
+			
+			// Run automatic BPM detection on first stem (canonical)
+			console.time('BPM detection');
+			const audioBuffer = audioEngine.getAudioBuffer();
+			if (audioBuffer) {
+				try {
+					sessionStore.setIsDetectingBpm(true);
+					const detectedBpm = await bpmDetector.detectBpm(audioBuffer);
+					finalBpm = detectedBpm;
+				} catch (error) {
+					console.error('Auto BPM detection failed:', error);
+					// Use default BPM
+					finalBpm = 120;
+				} finally {
+					sessionStore.setIsDetectingBpm(false);
+				}
+			}
+			console.timeEnd('BPM detection');
+			
+			console.time('updateSessionBpm');
+			// Update session with final BPM and regenerate beats
+			const updatedSession = await persistenceService.updateSessionBpm(newSession.id, finalBpm, audioDuration, false);
+			console.timeEnd('updateSessionBpm');
+			
+			console.time('setState');
+			// Set all state at once after everything is ready
+			sessionStore.bpm = finalBpm;
+			sessionStore.beatOffset = finalBeatOffset;
+			sessionStore.sliderBeatOffset = finalBeatOffset; // Keep slider in sync
+			sessionStore.setCurrentSession(updatedSession);
+			sessionStore.updateTargetBPM(finalBpm);
+			console.timeEnd('setState');
+			
+			console.timeEnd('handleStemFilesDrop');
+		} catch (error) {
+			console.error('Failed to load stems:', error);
+			alert('Failed to load stem files. Please try again.');
+		} finally {
+			sessionStore.setIsSessionInitializing(false);
+		}
+	}
+
+	async function loadStemSessionData(session: TrackSession): Promise<void> {
+		// Ensure backwards compatibility for annotations
+		if (!session.annotations) {
+			session.annotations = [];
+		}
+
+		// Set session early so the main UI can render without waiting for audio decode
+		sessionStore.setCurrentSession(session);
+		
+		// Load all stems
+		if (session.mode === 'stem' && session.stems) {
+			const stemBuffers = session.stems.map(stem => stem.mp3Blob);
+			await audioEngine.loadStems(stemBuffers);
+			
+			// Set initial enabled state for stems
+			session.stems.forEach((stem, index) => {
+				audioEngine.setStemEnabled(index, stem.enabled);
+			});
+		} else {
+			// Fallback to single track loading
+			if (session.mp3Blob) {
+				await audioEngine.loadTrack(session.mp3Blob);
+			}
+		}
+		
+		const audioDuration = audioEngine.getDuration();
+		sessionStore.setDuration(audioDuration);
+		
+		// Initialize local state from session
+		let finalBpm = session.bpm;
+		let finalBeatOffset = Math.round(session.beatOffset);
+		
+		// Initialize speed controls
+		const targetBPM = (session.targetBPM && session.targetBPM > 0) ? session.targetBPM : finalBpm;
+		sessionStore.updateTargetBPM(targetBPM);
+		
+		// Run BPM detection if not manually set
+		if (!session.manualBpm) {
+			const audioBuffer = audioEngine.getAudioBuffer();
+			if (audioBuffer) {
+				try {
+					sessionStore.setIsDetectingBpm(true);
+					const detectedBpm = await bpmDetector.detectBpm(audioBuffer);
+					finalBpm = detectedBpm;
+				} catch (error) {
+					console.error('Auto BPM detection failed:', error);
+					// Keep existing BPM from session
+				} finally {
+					sessionStore.setIsDetectingBpm(false);
+				}
+			}
+		}
+		
+		// Update session with final values if BPM changed
+		if (finalBpm !== session.bpm) {
+			const updatedSession = await persistenceService.updateSessionBpm(session.id, finalBpm, audioDuration, false);
+			session.bpm = updatedSession.bpm;
+			session.beats = updatedSession.beats;
+		}
+		
+		// Set all state at once after everything is ready
+		sessionStore.bpm = finalBpm;
+		sessionStore.beatOffset = finalBeatOffset;
+		sessionStore.sliderBeatOffset = finalBeatOffset; // Keep slider in sync
+		// currentSession already set early
 	}
 
 	// These functions are no longer needed as they're now in the store
@@ -823,6 +970,7 @@
 		sessionStore.beatOffset = 0;
 		sessionStore.sliderBeatOffset = 0;
 		sessionStore.currentBeatIndex = -1;
+		selectedMode = null; // Reset mode selector
 		
 		// Dispose of audio resources
 		audioEngine?.dispose();
@@ -978,6 +1126,7 @@
 					onAnnotationDeleted={handleAnnotationDeleted}
 					onAnnotationModalStateChange={handleAnnotationModalStateChange}
 					filename={sessionStore.currentSession.filename.replace(/\.[^/.]+$/, "")}
+					currentSession={sessionStore.currentSession}
 				/>
 			{:else if sessionStore.isSessionInitializing}
 				<!-- Loading state for waveform -->
@@ -1025,18 +1174,56 @@
 					<div class="animate-pulse">Loading previous session...</div>
 				</div>
 			</div>
-		{:else}
-			<!-- Song List -->
+		{:else if selectedMode === null}
+			<!-- Mode Selector -->
+			<div class="space-y-6">
+				<div class="text-center space-y-2">
+					<h2 class="text-2xl font-bold text-white">Choose Mode</h2>
+					<p class="text-gray-400">Select how you want to work with audio</p>
+				</div>
+				<div class="grid grid-cols-2 gap-4">
+					<!-- Normal Mode -->
+					<button
+						class="bg-gray-800 hover:bg-gray-700 border-2 border-gray-700 hover:border-blue-500 rounded-lg p-8 text-center transition-all cursor-pointer"
+						onclick={() => selectedMode = 'normal'}
+					>
+						<div class="space-y-3">
+							<div class="text-4xl">🎵</div>
+							<h3 class="text-xl font-semibold text-white">Normal Mode</h3>
+							<p class="text-gray-400 text-sm">Single audio track analysis</p>
+						</div>
+					</button>
+					<!-- Stem Mode -->
+					<button
+						class="bg-gray-800 hover:bg-gray-700 border-2 border-gray-700 hover:border-blue-500 rounded-lg p-8 text-center transition-all cursor-pointer"
+						onclick={() => selectedMode = 'stem'}
+					>
+						<div class="space-y-3">
+							<div class="text-4xl">🎛️</div>
+							<h3 class="text-xl font-semibold text-white">Stem Mode</h3>
+							<p class="text-gray-400 text-sm">Multiple audio tracks together</p>
+						</div>
+					</button>
+				</div>
+			</div>
+		{:else if selectedMode === 'normal'}
+			<!-- Normal Mode Song List -->
 			<SongList 
 				onSongSelected={handleSongSelected}
 				onFilesDrop={handleFilesDrop}
+			/>
+		{:else if selectedMode === 'stem'}
+			<!-- Stem Mode List -->
+			<StemList 
+				onStemSessionSelected={handleSongSelected}
+				onFilesDrop={handleStemFilesDrop}
 			/>
 		{/if}
 		</div>
 		
 		<!-- Sidebar -->
 		{#if sessionStore.currentSession}
-			<Sidebar {audioEngine} {bpmDetector} />
+			<Sidebar {audioEngine} {bpmDetector} {persistenceService} />
 		{/if}
 	</div>
 </main>

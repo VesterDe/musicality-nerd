@@ -6,13 +6,15 @@
 	import AnnotationSettings from './AnnotationSettings.svelte';
 	import type { AudioEngine } from '$lib/audio/AudioEngine';
 	import type { BpmDetector } from '$lib/audio/BpmDetector';
+	import type { PersistenceService } from '$lib/persistence/PersistenceService';
 	
 	interface Props {
 		audioEngine: AudioEngine;
 		bpmDetector: BpmDetector;
+		persistenceService: PersistenceService;
 	}
 	
-	let { audioEngine, bpmDetector }: Props = $props();
+	let { audioEngine, bpmDetector, persistenceService }: Props = $props();
 	
 	// Initialize panel states from localStorage or defaults
 	function getInitialPanelStates() {
@@ -72,7 +74,7 @@
 			</button>
 			{#if openPanels.playback}
 				<div class="px-4 pb-4 pt-2 border-t border-gray-700">
-					<PlaybackSettings {audioEngine} {bpmDetector} />
+					<PlaybackSettings {audioEngine} {bpmDetector} {persistenceService} />
 				</div>
 			{/if}
 		</div>

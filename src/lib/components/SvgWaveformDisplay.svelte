@@ -34,6 +34,7 @@
 		onAnnotationDeleted?: (id: string) => void;
 		onAnnotationModalStateChange?: (isOpen: boolean) => void;
 		filename?: string;
+		currentSession?: { mode?: 'single' | 'stem'; stems?: Array<{ enabled: boolean; color?: string }> } | null;
 	}
 
 	let { 
@@ -55,6 +56,7 @@
 		onAnnotationDeleted,
 		onAnnotationModalStateChange,
 		filename = 'audio',
+		currentSession = null,
 	}: Props = $props();
 
 	// Component state
@@ -64,6 +66,12 @@
 	let peaksData: Float32Array | null = $state(null);
 	let audioSampleRate = $state(44100);
 	let audioDuration = $state(0);
+	
+	// Stem mode state
+	let stemPeaksData: Float32Array[] = $state([]);
+	let stemColors: string[] = $state([]);
+	let stemEnabled: boolean[] = $state([]);
+	let isStemMode = $state(false);
 	
 	// Virtualization state
 	let visibleChunkIndices = $state(new Set<number>());
@@ -184,9 +192,16 @@
 	
 	// Heavy computation: generate waveform data for visible chunks only
 	const rawChunkData = $derived.by(() => {
-		if (!peaksData || chunkMetadata.length === 0) return [];
+		if ((!peaksData && !isStemMode) || (isStemMode && stemPeaksData.length === 0) || chunkMetadata.length === 0) return [];
 
+		const startTime = performance.now();
 		const chunks = [];
+		let visibleChunkCount = 0;
+		let stemBarGenerationCount = 0;
+		
+		// OPTIMIZATION: Only process chunks that are visible or in buffer zone
+		// We still need metadata for all chunks for scrolling/virtualization, but we only
+		// generate expensive waveform bars for visible chunks
 		for (const meta of chunkMetadata) {
 			// Check if chunk should be rendered (visible or in buffer zone)
 			const shouldRenderContent = isChunkInRenderRange(meta.index);
@@ -198,48 +213,99 @@
 
 			// Generate waveform data only for visible chunks
 			let waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
+			let waveformBarsPerStem: Array<Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }>> = [];
 			let beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }> = [];
 			let headerInfo = '';
 
 			if (shouldRenderContent) {
-				if (meta.isSpecialChunk) {
-					// Special chunk -1 handling
-					const offsetInSeconds = Math.abs(beatOffset) / 1000;
-					headerInfo = `Pre-song (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${offsetInSeconds.toFixed(3)}s)`;
+				if (isStemMode && stemPeaksData.length > 0) {
+					// Stem mode: generate bars for each stem
+					if (meta.isSpecialChunk) {
+						const offsetInSeconds = Math.abs(beatOffset) / 1000;
+						headerInfo = `Pre-song (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${offsetInSeconds.toFixed(3)}s)`;
 
-					// Generate waveform bars for special chunk (includes empty and song bars)
-						waveformBars = generateWaveformBars(
-						peaksData,
-						meta.bounds,
-						waveformConfig.width,
-						waveformConfig.height,
-							targetBars,
-						meta.index,
-						beatOffset,
-						chunkDuration,
-						chunkAnnotations
-					);
+						// Generate waveform bars for each stem
+						waveformBarsPerStem = stemPeaksData.map((stemPeaks, stemIndex) => {
+							stemBarGenerationCount++;
+							return generateWaveformBars(
+								stemPeaks,
+								meta.bounds,
+								waveformConfig.width,
+								waveformConfig.height,
+								targetBars,
+								meta.index,
+								beatOffset,
+								chunkDuration,
+								chunkAnnotations
+							);
+						});
+					} else {
+						// Generate beat grid
+						beatLines = generateBeatGrid(beatGrouping, waveformConfig.width, waveformConfig.height);
+
+						// Generate waveform bars for each stem
+						waveformBarsPerStem = stemPeaksData.map((stemPeaks, stemIndex) => {
+							stemBarGenerationCount++;
+							return generateWaveformBars(
+								stemPeaks,
+								meta.bounds,
+								waveformConfig.width,
+								waveformConfig.height,
+								targetBars,
+								meta.index,
+								beatOffset,
+								chunkDuration,
+								chunkAnnotations
+							);
+						});
+
+						const startTime = meta.bounds.startTimeMs / 1000;
+						const endTime = meta.bounds.endTimeMs / 1000;
+						const startingBeat = meta.index * beatGrouping + 1;
+						headerInfo = `Chunk ${meta.index + 1} (${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s) Beats ${startingBeat} - ${startingBeat + beatGrouping - 1}`;
+					}
+					// For backward compatibility, use first stem's bars
+					waveformBars = waveformBarsPerStem[0] || [];
 				} else {
-					// Generate beat grid
-					beatLines = generateBeatGrid(beatGrouping, waveformConfig.width, waveformConfig.height);
+					// Single track mode (existing logic)
+					if (meta.isSpecialChunk) {
+						const offsetInSeconds = Math.abs(beatOffset) / 1000;
+						headerInfo = `Pre-song (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${offsetInSeconds.toFixed(3)}s)`;
 
-					// Generate waveform bars
+						// Generate waveform bars for special chunk (includes empty and song bars)
 						waveformBars = generateWaveformBars(
-						peaksData,
-						meta.bounds,
-						waveformConfig.width,
-						waveformConfig.height,
+							peaksData!,
+							meta.bounds,
+							waveformConfig.width,
+							waveformConfig.height,
 							targetBars,
-						meta.index,
-						beatOffset,
-						chunkDuration,
-						chunkAnnotations
-					);
+							meta.index,
+							beatOffset,
+							chunkDuration,
+							chunkAnnotations
+						);
+					} else {
+						// Generate beat grid
+						beatLines = generateBeatGrid(beatGrouping, waveformConfig.width, waveformConfig.height);
 
-					const startTime = meta.bounds.startTimeMs / 1000;
-					const endTime = meta.bounds.endTimeMs / 1000;
-				const startingBeat = meta.index * beatGrouping + 1;
-					headerInfo = `Chunk ${meta.index + 1} (${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s) Beats ${startingBeat} - ${startingBeat + beatGrouping - 1}`;
+						// Generate waveform bars
+						waveformBars = generateWaveformBars(
+							peaksData!,
+							meta.bounds,
+							waveformConfig.width,
+							waveformConfig.height,
+							targetBars,
+							meta.index,
+							beatOffset,
+							chunkDuration,
+							chunkAnnotations
+						);
+
+						const startTime = meta.bounds.startTimeMs / 1000;
+						const endTime = meta.bounds.endTimeMs / 1000;
+						const startingBeat = meta.index * beatGrouping + 1;
+						headerInfo = `Chunk ${meta.index + 1} (${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s) Beats ${startingBeat} - ${startingBeat + beatGrouping - 1}`;
+					}
 				}
 			} else {
 				// For non-visible chunks, create minimal header info
@@ -259,12 +325,18 @@
 				bounds: meta.bounds,
 				isSpecialChunk: meta.isSpecialChunk,
 				waveformBars,
+				waveformBarsPerStem: isStemMode && shouldRenderContent ? waveformBarsPerStem : undefined,
 				beatLines,
 				headerInfo,
 				startTime: meta.startTime,
 				endTime: meta.endTime,
 				shouldRenderContent
 			});
+		}
+		
+		const endTime = performance.now();
+		if (endTime - startTime > 50) {
+			console.warn(`rawChunkData took ${(endTime - startTime).toFixed(2)}ms: ${chunkMetadata.length} total chunks, ${visibleChunkCount} visible, ${stemBarGenerationCount} stem bar generations`);
 		}
 		
 		return chunks;
@@ -431,9 +503,26 @@
 	}
 	
 	// Initialize audio data when AudioEngine changes
+	let isInitializing = $state(false);
+	let lastAudioEngineId = $state<AudioEngine | null>(null);
 	$effect(() => {
-		if (audioEngine) {
-			initializeFromAudioEngine();
+		// Only initialize if audioEngine actually changed (not just on every reactive update)
+		if (audioEngine && audioEngine !== lastAudioEngineId && !isInitializing) {
+			isInitializing = true;
+			lastAudioEngineId = audioEngine;
+			try {
+				initializeFromAudioEngine();
+			} finally {
+				isInitializing = false;
+			}
+		}
+	});
+
+	// Sync stem enabled state and colors from session when they change
+	$effect(() => {
+		if (isStemMode && currentSession?.mode === 'stem' && currentSession.stems) {
+			stemEnabled = currentSession.stems.map(stem => stem.enabled);
+			stemColors = currentSession.stems.map(stem => stem.color || '#3b82f6');
 		}
 	});
 	
@@ -632,21 +721,67 @@
 	});
 
 	function initializeFromAudioEngine() {
+		console.time('initializeFromAudioEngine');
 		try {
-			const audioBuffer = audioEngine.getAudioBuffer();
-			if (!audioBuffer) {
-				console.error('No audio buffer available from AudioEngine');
-				return;
-			}
+			// Check if we're in stem mode
+			if (audioEngine.isInStemMode) {
+				const stemBuffers = audioEngine.getStemBuffers();
+				if (stemBuffers.length === 0) {
+					console.error('No stem buffers available from AudioEngine');
+					return;
+				}
 
-			// Extract peaks data directly from AudioBuffer
-			audioSampleRate = audioBuffer.sampleRate;
-			audioDuration = audioBuffer.duration;
-			peaksData = audioBuffer.getChannelData(0);
+				console.time('extractPeaks');
+				// Use first stem for canonical properties
+				const firstBuffer = stemBuffers[0];
+				audioSampleRate = firstBuffer.sampleRate;
+				audioDuration = firstBuffer.duration;
+				
+				// Extract peaks data from all stems
+				stemPeaksData = stemBuffers.map(buffer => buffer.getChannelData(0));
+				isStemMode = true;
+				console.timeEnd('extractPeaks');
+				
+				// Get enabled state (default to all enabled if not available)
+				stemEnabled = audioEngine.getStemsState();
+				if (stemEnabled.length === 0) {
+					stemEnabled = stemBuffers.map(() => true);
+				}
+				
+				// Get colors from session if available, otherwise use defaults
+				if (currentSession?.mode === 'stem' && currentSession.stems) {
+					stemColors = currentSession.stems.map(stem => stem.color || '#3b82f6');
+					stemEnabled = currentSession.stems.map(stem => stem.enabled);
+				} else {
+					const defaultColors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+					stemColors = stemBuffers.map((_, i) => defaultColors[i % defaultColors.length]);
+					stemEnabled = stemBuffers.map(() => true);
+				}
+				
+				// Also set peaksData to first stem for backward compatibility
+				peaksData = stemPeaksData[0];
+			} else {
+				const audioBuffer = audioEngine.getAudioBuffer();
+				if (!audioBuffer) {
+					console.error('No audio buffer available from AudioEngine');
+					return;
+				}
+
+				// Extract peaks data directly from AudioBuffer
+				audioSampleRate = audioBuffer.sampleRate;
+				audioDuration = audioBuffer.duration;
+				peaksData = audioBuffer.getChannelData(0);
+				isStemMode = false;
+				stemPeaksData = [];
+				stemColors = [];
+				stemEnabled = [];
+			}
 			
 			isInitialized = true;
+			console.timeEnd('initializeFromAudioEngine');
 		} catch (error) {
 			console.error('Failed to initialize from AudioEngine:', error);
+			console.timeEnd('initializeFromAudioEngine');
 		}
 	}
 
@@ -1035,6 +1170,9 @@
 						bounds={chunk.bounds}
 						isSpecialChunk={chunk.isSpecialChunk}
 						waveformBars={chunk.waveformBars}
+						waveformBarsPerStem={chunk.waveformBarsPerStem}
+						stemColors={isStemMode ? stemColors : undefined}
+						stemEnabled={isStemMode ? stemEnabled : undefined}
 						beatLines={chunk.beatLines}
 						headerInfo={chunk.headerInfo}
 						startTime={chunk.startTime}

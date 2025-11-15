@@ -1,6 +1,6 @@
 import { get, set, del, keys, clear } from 'idb-keyval';
 import { v4 as uuidv4 } from 'uuid';
-import type { TrackSession, Annotation } from '../types';
+import type { TrackSession, Annotation, Stem } from '../types';
 
 const CURRENT_SESSION_KEY = 'current-session';
 const SESSION_PREFIX = 'session-';
@@ -83,7 +83,57 @@ export class PersistenceService {
 			beats: [],
 			annotations: [], // Initialize empty annotations array
 			targetBPM: 0, // Default target BPM (same as default BPM)
-			rectsPerBeatMode: 'auto' // Default to auto mode
+			rectsPerBeatMode: 'auto', // Default to auto mode
+			mode: 'single' // Explicitly set single mode
+		};
+
+		await this.saveSession(session);
+		return session;
+	}
+
+	/**
+	 * Create a new stem session from multiple MP3 files
+	 */
+	async createStemSession(files: FileList): Promise<TrackSession> {
+		if (files.length < 2) {
+			throw new Error('Stem sessions require at least 2 audio files');
+		}
+
+		// Default colors for stems (can be customized later)
+		const defaultColors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+		
+		const stems: Stem[] = await Promise.all(
+			Array.from(files).map(async (file, index) => {
+				const arrayBuffer = await file.arrayBuffer();
+				return {
+					id: uuidv4(),
+					filename: file.name,
+					mp3Blob: arrayBuffer,
+					enabled: true, // All stems enabled by default
+					color: defaultColors[index % defaultColors.length]
+				};
+			})
+		);
+
+		// Use the first file's name as the session filename (or generate a combined name)
+		const sessionFilename = files.length === 1 
+			? files[0].name 
+			: `${files[0].name.replace(/\.[^/.]+$/, '')} (${files.length} stems)`;
+
+		const session: TrackSession = {
+			id: uuidv4(),
+			filename: sessionFilename,
+			created: new Date().toISOString(),
+			bpm: 0, // Default BPM - will be detected from first stem
+			beatOffset: 0, // Default offset in milliseconds
+			manualBpm: false, // BPM not manually set initially
+			beatsPerLine: 4, // Default beats per line
+			beats: [],
+			annotations: [], // Initialize empty annotations array
+			targetBPM: 0, // Default target BPM (same as default BPM)
+			rectsPerBeatMode: 'auto', // Default to auto mode
+			mode: 'stem',
+			stems: stems
 		};
 
 		await this.saveSession(session);
@@ -94,20 +144,50 @@ export class PersistenceService {
 	 * Update a session with new data
 	 */
 	async updateSession(session: TrackSession): Promise<TrackSession> {
-		// Load the existing session to preserve the mp3Blob
+		// Load the existing session to preserve audio data
 		const existingSession = await this.loadSession(session.id);
 		if (!existingSession) {
 			throw new Error('Session not found');
 		}
 		
-		// Merge the new data with the existing session, keeping the original mp3Blob
-		const updatedSession = {
+		// Merge the new data with the existing session, preserving audio blobs based on mode
+		const updatedSession: TrackSession = {
 			...session,
-			mp3Blob: existingSession.mp3Blob // Keep the original ArrayBuffer
 		};
+		
+		if (existingSession.mode === 'stem' || session.mode === 'stem') {
+			// For stem sessions, preserve stems array
+			updatedSession.stems = existingSession.stems || session.stems;
+		} else {
+			// For single mode sessions, preserve mp3Blob
+			updatedSession.mp3Blob = existingSession.mp3Blob || session.mp3Blob;
+		}
 		
 		await this.saveSession(updatedSession);
 		return updatedSession;
+	}
+
+	/**
+	 * Update stem enabled state for a stem session
+	 */
+	async updateStemEnabled(sessionId: string, stemId: string, enabled: boolean): Promise<TrackSession> {
+		const session = await this.loadSession(sessionId);
+		if (!session) {
+			throw new Error('Session not found');
+		}
+
+		if (session.mode !== 'stem' || !session.stems) {
+			throw new Error('Session is not a stem session');
+		}
+
+		const stem = session.stems.find(s => s.id === stemId);
+		if (!stem) {
+			throw new Error('Stem not found');
+		}
+
+		stem.enabled = enabled;
+		await this.saveSession(session);
+		return session;
 	}
 	
 	/**
@@ -215,7 +295,7 @@ export class PersistenceService {
 	/**
 	 * List all stored sessions (metadata only, no audio blobs)
 	 */
-	async listSessions(): Promise<Array<Omit<TrackSession, 'mp3Blob'>>> {
+	async listSessions(): Promise<Array<Omit<TrackSession, 'mp3Blob' | 'stems'> & { stemCount?: number; stemsEnabled?: number }>> {
 		try {
 			const allKeys = await keys();
 			const sessionKeys = allKeys.filter(key => 
@@ -226,8 +306,16 @@ export class PersistenceService {
 				sessionKeys.map(async (key) => {
 					const session = await get(key) as TrackSession;
 					if (session) {
-						// Return session metadata without the audio blob
-						const { mp3Blob, ...metadata } = session;
+						// Return session metadata without the audio blobs
+						const { mp3Blob, stems, ...metadata } = session;
+						// For stem sessions, include stem count and enabled state in metadata
+						if (session.mode === 'stem' && stems) {
+							return {
+								...metadata,
+								stemCount: stems.length,
+								stemsEnabled: stems.filter(s => s.enabled).length
+							};
+						}
 						return metadata;
 					}
 					return null;
