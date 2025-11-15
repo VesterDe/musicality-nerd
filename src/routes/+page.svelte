@@ -969,6 +969,7 @@
 					onClearLoop={handleClearLoop}
 					{loopingChunkIndices}
 					onSeek={(time) => audioEngine.seekTo(time)}
+					isAnnotationMode={sessionStore.isAnnotationMode}
 					annotations={previewAnnotation 
 						? [...(sessionStore.currentSession.annotations || []), previewAnnotation]
 						: (sessionStore.currentSession.annotations || [])}

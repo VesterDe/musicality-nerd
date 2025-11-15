@@ -27,6 +27,7 @@
 		loopingChunkIndices?: Set<number>;
 		onSeek?: (time: number) => void;
 		onBeatsPerLineChange?: (value: number) => void;
+		isAnnotationMode?: boolean;
 		annotations?: Annotation[];
 		onAnnotationCreated?: (startTimeMs: number, endTimeMs: number, label?: string, color?: string, isPoint?: boolean) => void;
 		onAnnotationUpdated?: (id: string, updates: Partial<Annotation>) => void;
@@ -47,6 +48,7 @@
 		onClearLoop,
 		loopingChunkIndices = new Set<number>(),
 		onSeek,
+		isAnnotationMode = false,
 		annotations = [],
 		onAnnotationCreated,
 		onAnnotationUpdated,
@@ -653,14 +655,29 @@
 
 
 	function handleWaveformMouseDown(event: MouseEvent, chunkIndex: number, bounds: ChunkBounds) {
-		// Start drag for annotation creation
 		const svg = event.currentTarget as SVGElement;
 		const rect = svg.getBoundingClientRect();
 		const x = event.clientX - rect.left;
+		
+		// Convert pixel position to time (in milliseconds)
+		const clickedTimeMs = pixelToTime(x, bounds, waveformConfig.width);
+		
+		// If annotation mode is off, seek to clicked position and return early
+		if (!isAnnotationMode) {
+			if (onSeek) {
+				// Convert milliseconds to seconds for seek
+				const clickedTimeSeconds = clickedTimeMs / 1000;
+				onSeek(clickedTimeSeconds);
+			}
+			event.preventDefault();
+			return;
+		}
+		
+		// Annotation mode is on - start drag for annotation creation
 		lastPointerClientX = event.clientX;
 		lastPointerClientY = event.clientY;
 		
-		dragStartTimeMs = pixelToTime(x, bounds, waveformConfig.width);
+		dragStartTimeMs = clickedTimeMs;
 		dragEndTimeMs = dragStartTimeMs;
 		dragStartChunk = chunkIndex;
 		dragCurrentChunk = chunkIndex;
@@ -684,10 +701,26 @@
 		const svg = event.currentTarget as SVGElement;
 		const rect = svg.getBoundingClientRect();
 		const x = touch.clientX - rect.left;
+		
+		// Convert pixel position to time (in milliseconds)
+		const clickedTimeMs = pixelToTime(x, bounds, waveformConfig.width);
+		
+		// If annotation mode is off, seek to clicked position and return early
+		if (!isAnnotationMode) {
+			if (onSeek) {
+				// Convert milliseconds to seconds for seek
+				const clickedTimeSeconds = clickedTimeMs / 1000;
+				onSeek(clickedTimeSeconds);
+			}
+			event.preventDefault();
+			return;
+		}
+		
+		// Annotation mode is on - start drag for annotation creation
 		lastPointerClientX = touch.clientX;
 		lastPointerClientY = touch.clientY;
 
-		dragStartTimeMs = pixelToTime(x, bounds, waveformConfig.width);
+		dragStartTimeMs = clickedTimeMs;
 		dragEndTimeMs = dragStartTimeMs;
 		dragStartChunk = chunkIndex;
 		dragCurrentChunk = chunkIndex;
