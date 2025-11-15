@@ -293,6 +293,20 @@ export class PersistenceService {
 	}
 
 	/**
+	 * Update session filename
+	 */
+	async updateSessionFilename(sessionId: string, filename: string): Promise<TrackSession> {
+		const session = await this.loadSession(sessionId);
+		if (!session) {
+			throw new Error('Session not found');
+		}
+
+		session.filename = filename;
+		await this.saveSession(session);
+		return session;
+	}
+
+	/**
 	 * List all stored sessions (metadata only, no audio blobs)
 	 */
 	async listSessions(): Promise<Array<Omit<TrackSession, 'mp3Blob' | 'stems'> & { stemCount?: number; stemsEnabled?: number }>> {

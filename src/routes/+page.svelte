@@ -25,6 +25,8 @@
 	let isAnnotationModalOpen = $state(false);
 	let isDraggingProgress = $state(false);
 	let selectedMode: 'normal' | 'stem' | null = $state(null); // Mode selector state
+	let isEditingSessionName = $state(false);
+	let editingSessionName = $state('');
 	
 	// Annotation mode state (some in store, some local)
 	let activeAnnotationSession: { startTime: number; id: string } | null = $state(null);
@@ -429,6 +431,11 @@
 			return;
 		}
 
+		// Don't handle shortcuts when editing session name
+		if (isEditingSessionName) {
+			return;
+		}
+
 		// Prevent default for our shortcuts
 		if (event.code === 'Space' || event.code === 'ArrowLeft' || event.code === 'ArrowRight' || event.code === 'Enter' || event.code === 'KeyM' || (event.code === 'KeyA' && sessionStore.isAnnotationMode)) {
 			event.preventDefault();
@@ -500,6 +507,11 @@
 	async function handleKeyup(event: KeyboardEvent) {
 		// Don't handle shortcuts when annotation modal is open
 		if (isAnnotationModalOpen) {
+			return;
+		}
+
+		// Don't handle shortcuts when editing session name
+		if (isEditingSessionName) {
 			return;
 		}
 		
@@ -627,6 +639,56 @@
 
 	function handleAnnotationModalStateChange(isOpen: boolean) {
 		isAnnotationModalOpen = isOpen;
+	}
+
+	async function handleSessionNameClick() {
+		if (!sessionStore.currentSession) return;
+		isEditingSessionName = true;
+		editingSessionName = sessionStore.currentSession.filename;
+		// Focus the input after it's rendered
+		requestAnimationFrame(() => {
+			const input = document.querySelector('.session-name-input') as HTMLInputElement;
+			if (input) {
+				input.focus();
+				input.select();
+			}
+		});
+	}
+
+	async function handleSessionNameSave() {
+		if (!sessionStore.currentSession || !editingSessionName.trim()) {
+			isEditingSessionName = false;
+			return;
+		}
+
+		try {
+			const updatedSession = await persistenceService.updateSessionFilename(
+				sessionStore.currentSession.id,
+				editingSessionName.trim()
+			);
+			sessionStore.setCurrentSession(updatedSession);
+			isEditingSessionName = false;
+		} catch (error) {
+			console.error('Failed to update session name:', error);
+			alert('Failed to update session name. Please try again.');
+		}
+	}
+
+	function handleSessionNameCancel() {
+		isEditingSessionName = false;
+		editingSessionName = '';
+	}
+
+	function handleSessionNameKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			event.stopPropagation();
+			handleSessionNameSave();
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			event.stopPropagation();
+			handleSessionNameCancel();
+		}
 	}
 
 	function autoScrollToCurrentChunk() {
@@ -1041,7 +1103,26 @@
 					>
 						← Song List
 					</button>
-					<h2 class="text-lg font-semibold flex-1 mx-6 truncate text-center">{sessionStore.currentSession.filename}</h2>
+					<div class="flex-1 mx-6 flex items-center justify-center">
+						{#if isEditingSessionName}
+							<input
+								type="text"
+								class="session-name-input bg-gray-700 text-lg font-semibold text-center px-3 py-1 rounded border-2 border-blue-500 focus:outline-none focus:border-blue-400 w-full max-w-md"
+								bind:value={editingSessionName}
+								onkeydown={handleSessionNameKeydown}
+								onblur={handleSessionNameSave}
+								autofocus
+							/>
+						{:else}
+							<h2 
+								class="text-lg font-semibold truncate text-center cursor-pointer hover:text-blue-400 transition-colors"
+								onclick={handleSessionNameClick}
+								title="Click to rename"
+							>
+								{sessionStore.currentSession.filename}
+							</h2>
+						{/if}
+					</div>
 					<div class="text-sm text-gray-400">
 						Duration: {formatTime(sessionStore.duration)} • Beats: {sessionStore.currentSession.beats.length}
 					</div>
