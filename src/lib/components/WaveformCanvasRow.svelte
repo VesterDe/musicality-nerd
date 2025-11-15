@@ -32,8 +32,6 @@
 		isActiveChunk: boolean;
 		activeBeatLineIndices?: Set<number>;
 		activeBarIndex: number;
-		playheadVisible: boolean;
-		playheadX: number;
 		waveformConfig: WaveformConfig;
 		chunkDuration: number;
 		beatOffset: number;
@@ -49,7 +47,7 @@
 		onGroupExport?: () => void;
 		showGroupExportButton?: boolean;
 		loopingChunkCount?: number;
-		registerPlayheadLayer?: (canvas: HTMLCanvasElement | null, topTriangle: HTMLElement | null, bottomTriangle: HTMLElement | null) => void;
+		registerPlayheadLayer?: (canvas: HTMLCanvasElement | null) => void;
 		unregisterPlayheadLayer?: () => void;
 	}
 
@@ -71,8 +69,6 @@
 		isActiveChunk,
 		activeBeatLineIndices,
 		activeBarIndex,
-		playheadVisible,
-		playheadX,
 		waveformConfig,
 		chunkDuration,
 		beatOffset,
@@ -98,15 +94,6 @@
 	
 	// Playhead overlay canvas (for smooth rAF updates)
 	let playheadCanvas: HTMLCanvasElement | undefined = $state();
-	let playheadCtx: CanvasRenderingContext2D | null = $state(null);
-	
-	// DOM references for playhead triangles
-	let playheadTopTriangle: HTMLDivElement | null = $state(null);
-	let playheadBottomTriangle: HTMLDivElement | null = $state(null);
-
-	// Playhead triangle positions
-	const topY = 42; // 40px header + 2px padding
-	const bottomY = topY + waveformConfig.height - 10;
 
 	// Initialize canvas context
 	onMount(() => {
@@ -118,13 +105,12 @@
 		
 		if (playheadCanvas) {
 			setupHighDPICanvas(playheadCanvas, waveformConfig.width, waveformConfig.height);
-			playheadCtx = playheadCanvas.getContext('2d');
 		}
 		
 		// Register playhead layer
 		if (registerPlayheadLayer) {
 			untrack(() => {
-				registerPlayheadLayer(playheadCanvas || null, playheadTopTriangle, playheadBottomTriangle);
+				registerPlayheadLayer(playheadCanvas || null);
 			});
 		}
 	});
@@ -271,7 +257,7 @@
 	}
 </script>
 
-<div class="relative mb-0 bg-gray-900 rounded-lg overflow-hidden {playheadVisible ? 'current-chunk' : ''}" data-chunk-index={chunkIndex}>
+<div class="relative mb-0 bg-gray-900 rounded-lg overflow-hidden {isActiveChunk ? 'current-chunk' : ''}" data-chunk-index={chunkIndex}>
 	<!-- Chunk Header -->
 	<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between">
 		<div>{headerInfo}</div>
@@ -355,19 +341,5 @@
 		{/if}
 	</div>
 
-	<!-- Static playhead triangles (positioned via rAF, hidden by default) -->
-	<!-- Top triangle pointing down -->
-	<div
-		bind:this={playheadTopTriangle}
-		class="absolute pointer-events-none"
-		style="display: none; left: 0px; top: {topY}px; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 8px solid #fbbf24; filter: drop-shadow(0 0 2px rgba(251, 191, 36, 0.8)); z-index: 20;"
-	></div>
-	
-	<!-- Bottom triangle pointing up -->
-	<div
-		bind:this={playheadBottomTriangle}
-		class="absolute pointer-events-none"
-		style="display: none; left: 0px; top: {bottomY}px; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 8px solid #fbbf24; filter: drop-shadow(0 0 2px rgba(251, 191, 36, 0.8)); z-index: 20;"
-	></div>
 </div>
 

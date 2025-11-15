@@ -114,18 +114,16 @@
 	// Queue for registrations that happen before animator exists
 	const pendingRegistrations = new Map<number, {
 		canvas: HTMLCanvasElement | null;
-		topTriangle: HTMLElement | null;
-		bottomTriangle: HTMLElement | null;
 	}>();
 	
 	// Stable callback functions for playhead layer registration
 	function createRegisterCallback(chunkIndex: number) {
-		return (canvas: HTMLCanvasElement | null, topTriangle: HTMLElement | null, bottomTriangle: HTMLElement | null) => {
+		return (canvas: HTMLCanvasElement | null) => {
 			if (playheadAnimator) {
-				playheadAnimator.registerChunkLayer(chunkIndex, canvas, topTriangle, bottomTriangle);
+				playheadAnimator.registerChunkLayer(chunkIndex, canvas);
 			} else {
 				// Queue the registration for when animator is ready
-				pendingRegistrations.set(chunkIndex, { canvas, topTriangle, bottomTriangle });
+				pendingRegistrations.set(chunkIndex, { canvas });
 			}
 		};
 	}
@@ -250,8 +248,6 @@
 		private chunkLayers: Map<number, {
 			canvas: HTMLCanvasElement | null;
 			ctx: CanvasRenderingContext2D | null;
-			topTriangle: HTMLElement | null;
-			bottomTriangle: HTMLElement | null;
 			height: number;
 		}> = new Map();
 
@@ -268,18 +264,16 @@
 		 */
 		registerChunkLayer(
 			chunkIndex: number,
-			canvas: HTMLCanvasElement | null,
-			topTriangle: HTMLElement | null,
-			bottomTriangle: HTMLElement | null
+			canvas: HTMLCanvasElement | null
 		): void {
 			const ctx = canvas?.getContext('2d') || null;
 			const height = canvas?.height || 0;
-			this.chunkLayers.set(chunkIndex, { canvas, ctx, topTriangle, bottomTriangle, height });
+			this.chunkLayers.set(chunkIndex, { canvas, ctx, height });
 			// Immediately sync position - this will show playhead on the correct chunk
-			// Sync both immediately and in next frame to ensure it works
+			// Sync both immediately and in next frame to ensure canvas is ready
 			const currentTime = this.getCurrentTime();
 			this.updatePosition(currentTime);
-			// Also sync in next frame in case DOM wasn't ready
+			// Also sync in next frame in case canvas context wasn't ready
 			requestAnimationFrame(() => {
 				this.updatePosition(this.getCurrentTime());
 			});
@@ -305,12 +299,6 @@
 					// Clear entire canvas (already scaled for DPR)
 					layer.ctx.clearRect(0, 0, layer.canvas.width, layer.canvas.height);
 				}
-				if (layer.topTriangle) {
-					layer.topTriangle.style.display = 'none';
-				}
-				if (layer.bottomTriangle) {
-					layer.bottomTriangle.style.display = 'none';
-				}
 			}
 
 			// Show and position playhead for the active chunk
@@ -334,15 +322,38 @@
 			activeLayer.ctx.stroke();
 			activeLayer.ctx.globalAlpha = 1.0;
 			
-			if (activeLayer.topTriangle) {
-				activeLayer.topTriangle.style.display = 'block';
-				activeLayer.topTriangle.style.left = `${roundedX - 4}px`;
-			}
+			// Draw triangles with glow effect (simulating drop-shadow filter)
+			const triangleSize = 8;
+			const triangleX = roundedX - 4;
 			
-			if (activeLayer.bottomTriangle) {
-				activeLayer.bottomTriangle.style.display = 'block';
-				activeLayer.bottomTriangle.style.left = `${roundedX - 4}px`;
-			}
+			// Set shadow for glow effect
+			activeLayer.ctx.shadowColor = 'rgba(251, 191, 36, 0.8)';
+			activeLayer.ctx.shadowBlur = 2;
+			activeLayer.ctx.shadowOffsetX = 0;
+			activeLayer.ctx.shadowOffsetY = 0;
+			activeLayer.ctx.fillStyle = '#fbbf24';
+			
+			// Draw top triangle (pointing down) at the top of the canvas
+			activeLayer.ctx.beginPath();
+			activeLayer.ctx.moveTo(triangleX, 0);
+			activeLayer.ctx.lineTo(triangleX + triangleSize, 0);
+			activeLayer.ctx.lineTo(triangleX + triangleSize / 2, triangleSize);
+			activeLayer.ctx.closePath();
+			activeLayer.ctx.fill();
+			
+			// Draw bottom triangle (pointing up) near the bottom of the canvas
+			// Position it 10px from the bottom to match original positioning
+			const bottomTriangleY = logicalHeight - triangleSize - 10;
+			activeLayer.ctx.beginPath();
+			activeLayer.ctx.moveTo(triangleX, bottomTriangleY + triangleSize);
+			activeLayer.ctx.lineTo(triangleX + triangleSize, bottomTriangleY + triangleSize);
+			activeLayer.ctx.lineTo(triangleX + triangleSize / 2, bottomTriangleY);
+			activeLayer.ctx.closePath();
+			activeLayer.ctx.fill();
+			
+			// Reset shadow
+			activeLayer.ctx.shadowColor = 'transparent';
+			activeLayer.ctx.shadowBlur = 0;
 		}
 
 		/**
@@ -846,8 +857,8 @@
 			playheadAnimator = animator;
 			
 			// Apply all pending registrations that happened before animator was ready
-			for (const [chunkIndex, { canvas, topTriangle, bottomTriangle }] of pendingRegistrations.entries()) {
-				animator.registerChunkLayer(chunkIndex, canvas, topTriangle, bottomTriangle);
+			for (const [chunkIndex, { canvas }] of pendingRegistrations.entries()) {
+				animator.registerChunkLayer(chunkIndex, canvas);
 			}
 			pendingRegistrations.clear();
 			
@@ -1493,8 +1504,6 @@
 									isActiveChunk={playheadInfo?.chunkIndex === chunk.index}
 									activeBarIndex={playheadInfo?.chunkIndex === chunk.index && activeBarInfo ? activeBarInfo.barIndex : -1}
 									activeBeatLineIndices={playheadInfo?.chunkIndex === chunk.index ? activeBeatLineIndices : undefined}
-									playheadVisible={playheadInfo?.chunkIndex === chunk.index}
-									playheadX={playheadInfo?.chunkIndex === chunk.index ? playheadInfo.x : 0}
 									{waveformConfig}
 									{chunkDuration}
 									{beatOffset}
