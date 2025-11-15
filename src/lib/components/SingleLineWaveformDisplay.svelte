@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount, onDestroy, untrack } from 'svelte';
 	import HtmlAnnotation from './HtmlAnnotation.svelte';
 	import type { Annotation } from '../types';
 	import type { ChunkBounds, WaveformConfig } from '../utils/svgWaveform';
@@ -38,6 +39,8 @@
 		onGroupExport?: () => void;
 		showGroupExportButton?: boolean;
 		loopingChunkCount?: number;
+		registerPlayheadLayer?: (line: HTMLElement | null, topTriangle: HTMLElement | null, bottomTriangle: HTMLElement | null) => void;
+		unregisterPlayheadLayer?: () => void;
 	}
 
 	let {
@@ -74,8 +77,51 @@
 		onDuplicateAnnotation,
 		onGroupExport,
 		showGroupExportButton = false,
-		loopingChunkCount = 0
+		loopingChunkCount = 0,
+		registerPlayheadLayer,
+		unregisterPlayheadLayer
 	}: Props = $props();
+
+	// DOM references for playhead elements
+	let playheadLine: SVGLineElement | null = $state(null);
+	let playheadTopTriangle: HTMLDivElement | null = $state(null);
+	let playheadBottomTriangle: HTMLDivElement | null = $state(null);
+
+	// Playhead triangle positions (calculated once)
+	const topY = 42; // 40px header + 2px padding
+	const bottomY = topY + waveformConfig.height - 10;
+
+	// Register/unregister playhead layer DOM elements when refs are available
+	// Track only the DOM refs, not the function props
+	$effect(() => {
+		// Only track the DOM refs, not the function props
+		const line = playheadLine;
+		const top = playheadTopTriangle;
+		const bottom = playheadBottomTriangle;
+		
+		if (line !== null && top !== null && bottom !== null) {
+			// Use untrack to prevent tracking function references
+			untrack(() => {
+				if (registerPlayheadLayer) {
+					console.debug('[Playhead] SingleLineWaveformDisplay registering', { chunkIndex, line: !!line, top: !!top, bottom: !!bottom });
+					registerPlayheadLayer(line, top, bottom);
+				} else {
+					console.warn('[Playhead] registerPlayheadLayer callback not available', { chunkIndex });
+				}
+			});
+		} else {
+			console.debug('[Playhead] SingleLineWaveformDisplay refs not ready', { chunkIndex, line: !!playheadLine, top: !!playheadTopTriangle, bottom: !!playheadBottomTriangle });
+		}
+		
+		return () => {
+			untrack(() => {
+				if (unregisterPlayheadLayer) {
+					console.debug('[Playhead] SingleLineWaveformDisplay unregistering', { chunkIndex });
+					unregisterPlayheadLayer();
+				}
+			});
+		};
+	});
 </script>
 
 <div class="relative mb-0 bg-gray-900 rounded-lg overflow-hidden {playheadVisible ? 'current-chunk' : ''}" data-chunk-index={chunkIndex}>
@@ -301,22 +347,22 @@
 				{/each}
 			{/if}
 
-			<!-- Lightweight overlays for the active chunk only -->
-			{#if isActiveChunk}
-				{@const roundedX = Math.round(playheadX)}
-				<!-- Playhead highlight line -->
-				<line
-					x1={roundedX}
-					y1="0"
-					x2={roundedX}
-					y2={waveformConfig.height}
-					stroke="#fbbf24"
-					stroke-width="1.5"
-					opacity="0.3"
-					pointer-events="none"
-				/>
+			<!-- Static playhead line (positioned via rAF, hidden by default) -->
+			<line
+				bind:this={playheadLine}
+				x1="0"
+				y1="0"
+				x2="0"
+				y2={waveformConfig.height}
+				stroke="#fbbf24"
+				stroke-width="1.5"
+				opacity="0.3"
+				pointer-events="none"
+				style="display: none; transform-origin: 0 0;"
+			/>
 
-				<!-- Annotated bar flash overlay (only when bar has annotations) -->
+			<!-- Annotated bar flash overlay (only when bar has annotations) -->
+			{#if isActiveChunk}
 				{@const _activeIndex = activeBarIndex >= 0 && activeBarIndex < waveformBars.length ? activeBarIndex : -1}
 				{@const _activeBar = _activeIndex >= 0 ? waveformBars[_activeIndex] : null}
 				{#if _activeBar && _activeBar.annotationColors && _activeBar.annotationColors.length > 0}
@@ -372,40 +418,20 @@
 		{/if}
 	</div>
 
-	<!-- Playhead triangles (only if this chunk has the playhead) -->
-	{#if playheadVisible}
-		{@const topY = 42} <!-- 40px header + 2px padding -->
-		{@const bottomY = topY + waveformConfig.height - 10}
-		{@const roundedX = Math.round(playheadX)}
-		
-		<!-- Top triangle pointing down -->
-		<div
-			class="absolute pointer-events-none"
-			style:left="{roundedX - 4}px"
-			style:top="{topY}px"
-			style:width="0"
-			style:height="0"
-			style:border-left="4px solid transparent"
-			style:border-right="4px solid transparent"
-			style:border-top="8px solid #fbbf24"
-			style:filter="drop-shadow(0 0 2px rgba(251, 191, 36, 0.8))"
-			style:z-index="20"
-		></div>
-		
-		<!-- Bottom triangle pointing up -->
-		<div
-			class="absolute pointer-events-none"
-			style:left="{roundedX - 4}px"
-			style:top="{bottomY}px"
-			style:width="0"
-			style:height="0"
-			style:border-left="4px solid transparent"
-			style:border-right="4px solid transparent"
-			style:border-bottom="8px solid #fbbf24"
-			style:filter="drop-shadow(0 0 2px rgba(251, 191, 36, 0.8))"
-			style:z-index="20"
-		></div>
-	{/if}
+	<!-- Static playhead triangles (positioned via rAF, hidden by default) -->
+	<!-- Top triangle pointing down -->
+	<div
+		bind:this={playheadTopTriangle}
+		class="absolute pointer-events-none"
+		style="display: none; left: 0px; top: {topY}px; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 8px solid #fbbf24; filter: drop-shadow(0 0 2px rgba(251, 191, 36, 0.8)); z-index: 20;"
+	></div>
+	
+	<!-- Bottom triangle pointing up -->
+	<div
+		bind:this={playheadBottomTriangle}
+		class="absolute pointer-events-none"
+		style="display: none; left: 0px; top: {bottomY}px; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 8px solid #fbbf24; filter: drop-shadow(0 0 2px rgba(251, 191, 36, 0.8)); z-index: 20;"
+	></div>
 </div>
 
 <style>

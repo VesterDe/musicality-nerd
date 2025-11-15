@@ -28,6 +28,10 @@
 	let isEditingSessionName = $state(false);
 	let editingSessionName = $state('');
 	
+	// Throttling for coarse time updates (~10Hz)
+	let lastTimeUpdate = $state(0);
+	const TIME_UPDATE_INTERVAL = 100; // 100ms = 10Hz
+	
 	// Annotation mode state (some in store, some local)
 	let activeAnnotationSession: { startTime: number; id: string } | null = $state(null);
 	let isAKeyPressed = $state(false); // Track physical key state
@@ -47,7 +51,13 @@
 		audioEngine.onTimeUpdate = (time) => {
 			// Only update currentTime if user is not dragging the progress slider
 			if (!isDraggingProgress) {
-				sessionStore.setCurrentTime(time);
+				// Throttle store updates to ~10Hz for coarse UI (labels, progress bars)
+				// The playhead position will be updated via rAF independently
+				const now = Date.now();
+				if (now - lastTimeUpdate >= TIME_UPDATE_INTERVAL) {
+					sessionStore.setCurrentTime(time);
+					lastTimeUpdate = now;
+				}
 			}
 			sessionStore.updateCurrentBeat();
 			// Keep UI state in sync with audio engine state
@@ -407,6 +417,10 @@
 		try {
 			if (sessionStore.isPlaying) {
 				audioEngine.pause();
+				// Force immediate time sync after pause (bypass throttling)
+				const pausedTime = audioEngine.getCurrentTime();
+				sessionStore.setCurrentTime(pausedTime);
+				lastTimeUpdate = Date.now(); // Reset throttle timer
 				sessionStore.setIsPlaying(false);
 				// Clear any active annotation session and key state when pausing
 				activeAnnotationSession = null;
@@ -616,6 +630,10 @@
 		const targetTime = (targetBeat * (60 / sessionStore.bpm)) + offsetInSeconds;
 		
 		await audioEngine.seekTo(targetTime);
+		// Force immediate time sync after seek (bypass throttling)
+		const seekTime = audioEngine.getCurrentTime();
+		sessionStore.setCurrentTime(seekTime);
+		lastTimeUpdate = Date.now();
 	}
 
 	async function jumpToNextBoundary() {
@@ -629,6 +647,10 @@
 		const targetTime = Math.min((targetBeat * (60 / sessionStore.bpm)) + offsetInSeconds, sessionStore.duration);
 		
 		await audioEngine.seekTo(targetTime);
+		// Force immediate time sync after seek (bypass throttling)
+		const seekTime = audioEngine.getCurrentTime();
+		sessionStore.setCurrentTime(seekTime);
+		lastTimeUpdate = Date.now();
 	}
 
 	function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -833,9 +855,11 @@
 		// Await the seek operation and immediately sync state
 		await audioEngine.seekTo(clampedTime);
 		
-		// Force immediate state synchronization
+		// Force immediate state synchronization (bypass throttling)
+		const syncedTime = audioEngine.getCurrentTime();
 		sessionStore.setIsPlaying(audioEngine.playing);
-		sessionStore.setCurrentTime(audioEngine.getCurrentTime());
+		sessionStore.setCurrentTime(syncedTime);
+		lastTimeUpdate = Date.now(); // Reset throttle timer
 	}
 
 	// Helper function to manage loop chunks - allows any pieces to be looped
@@ -1193,6 +1217,7 @@
 					{audioEngine}
 					beatOffset={sessionStore.beatOffset}
 					beatsPerLine={sessionStore.currentSession.beatsPerLine}
+					isPlaying={sessionStore.isPlaying}
 					rectsPerBeatMode={sessionStore.currentSession.rectsPerBeatMode ?? 'auto'}
 					onChunkLoop={handleChunkLoop}
 					onClearLoop={handleClearLoop}

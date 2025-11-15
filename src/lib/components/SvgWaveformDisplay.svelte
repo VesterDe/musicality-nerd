@@ -21,6 +21,7 @@
 		audioEngine: AudioEngine;
 		beatOffset: number;
 		beatsPerLine: number;
+		isPlaying?: boolean;
 		rectsPerBeatMode?: 'auto' | number;
 		onChunkLoop?: (chunkIndex: number, startTime: number, endTime: number) => void;
 		onClearLoop?: () => void;
@@ -44,6 +45,7 @@
 		audioEngine,
 		beatOffset = 0,
 		beatsPerLine = 16,
+		isPlaying = false,
 		rectsPerBeatMode = 'auto',
 		onChunkLoop,
 		onClearLoop,
@@ -104,6 +106,290 @@
 	let placeholderStartTimeMs = $state(0);
 	let placeholderEndTimeMs = $state(0);
 
+	// Playhead animation state
+	let playheadAnimator: PlayheadAnimator | null = $state(null);
+	
+	// Queue for registrations that happen before animator exists
+	const pendingRegistrations = new Map<number, {
+		line: HTMLElement | null;
+		topTriangle: HTMLElement | null;
+		bottomTriangle: HTMLElement | null;
+	}>();
+	
+	// Stable callback functions for playhead layer registration
+	function createRegisterCallback(chunkIndex: number) {
+		return (line: HTMLElement | null, topTriangle: HTMLElement | null, bottomTriangle: HTMLElement | null) => {
+			console.debug('[Playhead] createRegisterCallback called', { chunkIndex, animatorExists: !!playheadAnimator });
+			if (playheadAnimator) {
+				playheadAnimator.registerChunkLayer(chunkIndex, line, topTriangle, bottomTriangle);
+			} else {
+				// Queue the registration for when animator is ready
+				console.debug('[Playhead] Queuing registration for later', { chunkIndex });
+				pendingRegistrations.set(chunkIndex, { line, topTriangle, bottomTriangle });
+			}
+		};
+	}
+	
+	function createUnregisterCallback(chunkIndex: number) {
+		return () => {
+			if (playheadAnimator) {
+				playheadAnimator.unregisterChunkLayer(chunkIndex);
+			} else {
+				// Remove from pending registrations if animator doesn't exist yet
+				pendingRegistrations.delete(chunkIndex);
+			}
+		};
+	}
+
+	/**
+	 * Pure helper function to compute playhead position from time
+	 * Extracted from reactive playheadInfo for use in both reactive and rAF contexts
+	 */
+	function computePlayheadPosition(
+		timeSeconds: number,
+		chunkDuration: number,
+		containerWidth: number,
+		beatOffset: number,
+		audioDuration: number
+	): { chunkIndex: number; chunkContainerIndex: number; x: number } | null {
+		if (audioDuration <= 0) return null;
+
+		// Determine which chunk to show playhead in
+		let currentChunkIndex: number;
+		let chunkContainerIndex: number;
+
+		if (beatOffset > 0) {
+			if (timeSeconds < chunkDuration) {
+				currentChunkIndex = -1;
+				chunkContainerIndex = 0;
+			} else {
+				const timeAfterFirstChunk = timeSeconds - chunkDuration;
+				currentChunkIndex = Math.floor(timeAfterFirstChunk / chunkDuration);
+				chunkContainerIndex = currentChunkIndex + 1;
+			}
+		} else if (beatOffset < 0) {
+			const offsetInSeconds = Math.abs(beatOffset) / 1000;
+			if (timeSeconds < offsetInSeconds) {
+				currentChunkIndex = -1;
+				chunkContainerIndex = 0;
+			} else {
+				const adjustedTime = timeSeconds - offsetInSeconds;
+				currentChunkIndex = Math.floor(adjustedTime / chunkDuration);
+				chunkContainerIndex = currentChunkIndex + 1;
+			}
+		} else {
+			currentChunkIndex = Math.floor(timeSeconds / chunkDuration);
+			chunkContainerIndex = currentChunkIndex;
+		}
+
+		// Calculate playhead X position
+		let x = 0;
+		
+		if (currentChunkIndex === -1) {
+			// Special chunk -1 handling
+			if (beatOffset > 0) {
+				const offsetInSeconds = beatOffset / 1000;
+				const songStartX = (offsetInSeconds / chunkDuration) * containerWidth;
+				
+				if (timeSeconds === 0) {
+					x = songStartX;
+				} else if (timeSeconds <= chunkDuration) {
+					// Linear progression: map time within the song portion
+					const songDuration = chunkDuration - offsetInSeconds;
+					const progressRatio = timeSeconds / songDuration;
+					const songPortionWidth = containerWidth - songStartX;
+					x = songStartX + progressRatio * songPortionWidth;
+				}
+			} else if (beatOffset < 0) {
+				const offsetInSeconds = Math.abs(beatOffset) / 1000;
+				const songStartX = ((chunkDuration - offsetInSeconds) / chunkDuration) * containerWidth;
+				
+				if (timeSeconds === 0) {
+					x = songStartX;
+				} else if (timeSeconds <= offsetInSeconds) {
+					// Linear progression: map timeSeconds linearly across the song portion
+					const progressRatio = timeSeconds / offsetInSeconds;
+					const songPortionWidth = containerWidth - songStartX;
+					x = songStartX + progressRatio * songPortionWidth;
+				}
+			}
+		} else {
+			// Normal playhead positioning for regular chunks
+			if (beatOffset > 0) {
+				const chunkStartTime = chunkDuration + currentChunkIndex * chunkDuration;
+				const timeInChunk = timeSeconds - chunkStartTime;
+				x = (timeInChunk / chunkDuration) * containerWidth;
+			} else if (beatOffset < 0) {
+				const offsetInSeconds = Math.abs(beatOffset) / 1000;
+				const chunkStartTime = offsetInSeconds + currentChunkIndex * chunkDuration;
+				const timeInChunk = timeSeconds - chunkStartTime;
+				x = (timeInChunk / chunkDuration) * containerWidth;
+			} else {
+				const chunkStartTime = currentChunkIndex * chunkDuration;
+				const timeInChunk = timeSeconds - chunkStartTime;
+				x = (timeInChunk / chunkDuration) * containerWidth;
+			}
+		}
+
+		return {
+			chunkIndex: currentChunkIndex,
+			chunkContainerIndex,
+			x
+		};
+	}
+
+	/**
+	 * PlayheadAnimator: Manages smooth playhead updates via requestAnimationFrame
+	 * Updates DOM directly without triggering Svelte reactivity
+	 */
+	class PlayheadAnimator {
+		private rafId: number | null = null;
+		private isRunning = false;
+		private getCurrentTime: () => number;
+		private computePosition: (time: number) => { chunkIndex: number; chunkContainerIndex: number; x: number } | null;
+		private chunkLayers: Map<number, {
+			line: HTMLElement | null;
+			topTriangle: HTMLElement | null;
+			bottomTriangle: HTMLElement | null;
+		}> = new Map();
+
+		constructor(
+			getCurrentTime: () => number,
+			computePosition: (time: number) => { chunkIndex: number; chunkContainerIndex: number; x: number } | null
+		) {
+			this.getCurrentTime = getCurrentTime;
+			this.computePosition = computePosition;
+		}
+
+		/**
+		 * Register a playhead layer for a chunk
+		 */
+		registerChunkLayer(
+			chunkIndex: number,
+			line: HTMLElement | null,
+			topTriangle: HTMLElement | null,
+			bottomTriangle: HTMLElement | null
+		): void {
+			this.chunkLayers.set(chunkIndex, { line, topTriangle, bottomTriangle });
+			console.debug('[Playhead] register layer', {
+				chunkIndex,
+				lineExists: !!line,
+				topExists: !!topTriangle,
+				bottomExists: !!bottomTriangle
+			});
+			// Immediately sync position - this will show playhead on the correct chunk
+			// Sync both immediately and in next frame to ensure it works
+			const currentTime = this.getCurrentTime();
+			this.updatePosition(currentTime);
+			// Also sync in next frame in case DOM wasn't ready
+			requestAnimationFrame(() => {
+				this.updatePosition(this.getCurrentTime());
+			});
+		}
+
+		/**
+		 * Unregister a playhead layer (e.g., when chunk is virtualized out)
+		 */
+		unregisterChunkLayer(chunkIndex: number): void {
+			this.chunkLayers.delete(chunkIndex);
+		}
+
+		/**
+		 * Update playhead position for a specific time
+		 */
+		private updatePosition(time: number): void {
+			const pos = this.computePosition(time);
+			if (!pos) return;
+
+			// Hide all playhead layers first
+			for (const [index, layer] of this.chunkLayers.entries()) {
+				if (layer.line) {
+					layer.line.style.display = 'none';
+				}
+				if (layer.topTriangle) {
+					layer.topTriangle.style.display = 'none';
+				}
+				if (layer.bottomTriangle) {
+					layer.bottomTriangle.style.display = 'none';
+				}
+			}
+
+			// Show and position playhead for the active chunk
+			const activeLayer = this.chunkLayers.get(pos.chunkIndex);
+			if (!activeLayer) {
+				console.warn('[Playhead] no active layer for chunk', pos.chunkIndex, {
+					availableChunks: Array.from(this.chunkLayers.keys()).sort((a, b) => a - b)
+				});
+				return;
+			}
+
+			const roundedX = Math.round(pos.x);
+			
+			if (activeLayer.line) {
+				// SVG line: update x1 and x2 attributes directly
+				activeLayer.line.setAttribute('x1', String(roundedX));
+				activeLayer.line.setAttribute('x2', String(roundedX));
+				activeLayer.line.style.display = 'block';
+			} else {
+				console.warn('[Playhead] missing line element for chunk', pos.chunkIndex);
+			}
+			
+			if (activeLayer.topTriangle) {
+				activeLayer.topTriangle.style.display = 'block';
+				activeLayer.topTriangle.style.left = `${roundedX - 4}px`;
+			}
+			
+			if (activeLayer.bottomTriangle) {
+				activeLayer.bottomTriangle.style.display = 'block';
+				activeLayer.bottomTriangle.style.left = `${roundedX - 4}px`;
+			}
+		}
+
+		/**
+		 * Animation loop
+		 */
+		private animate = (): void => {
+			if (!this.isRunning) return;
+			
+			const time = this.getCurrentTime();
+			this.updatePosition(time);
+			
+			this.rafId = requestAnimationFrame(this.animate);
+		};
+
+		/**
+		 * Set playing state (start/stop animation loop)
+		 */
+		setPlayingState(playing: boolean): void {
+			if (playing === this.isRunning) return;
+			
+			this.isRunning = playing;
+			
+			if (playing) {
+				this.rafId = requestAnimationFrame(this.animate);
+			} else {
+				if (this.rafId !== null) {
+					cancelAnimationFrame(this.rafId);
+					this.rafId = null;
+				}
+			}
+		}
+
+		/**
+		 * Sync playhead to a specific time (for seeks/pauses)
+		 */
+		syncToTime(time: number): void {
+			this.updatePosition(time);
+		}
+
+		/**
+		 * Cleanup
+		 */
+		dispose(): void {
+			this.setPlayingState(false);
+			this.chunkLayers.clear();
+		}
+	}
 
 	// Derived values
 	const chunkDuration = $derived(beatGrouping * (60 / bpm));
@@ -526,6 +812,62 @@
 		}
 	});
 	
+	// Initialize playhead animator (only when audio is initialized)
+	$effect(() => {
+		const shouldInit = isInitialized && audioDuration > 0 && audioEngine;
+
+		if (shouldInit && !playheadAnimator) {
+			const computePos = (time: number) => {
+				return computePlayheadPosition(time, chunkDuration, containerWidth, beatOffset, audioDuration);
+			};
+
+			const animator = new PlayheadAnimator(
+				() => audioEngine.getCurrentTime(),
+				computePos
+			);
+
+			playheadAnimator = animator;
+			
+			// Apply all pending registrations that happened before animator was ready
+			console.debug('[Playhead] Applying pending registrations', { count: pendingRegistrations.size });
+			for (const [chunkIndex, { line, topTriangle, bottomTriangle }] of pendingRegistrations.entries()) {
+				animator.registerChunkLayer(chunkIndex, line, topTriangle, bottomTriangle);
+			}
+			pendingRegistrations.clear();
+			
+			// Sync immediately after creation - this will update any already-registered layers
+			// New layers will also sync when they register
+			requestAnimationFrame(() => {
+				if (playheadAnimator === animator) {
+					animator.syncToTime(audioEngine.getCurrentTime());
+				}
+			});
+		} else if (!shouldInit && playheadAnimator) {
+			playheadAnimator.dispose();
+			playheadAnimator = null;
+			// Clear pending registrations when animator is disposed
+			pendingRegistrations.clear();
+		}
+	});
+
+	// Sync animator when playing state changes
+	$effect(() => {
+		if (playheadAnimator) {
+			playheadAnimator.setPlayingState(isPlaying);
+		}
+	});
+
+	// Sync animator when time changes (for seeks/pauses) - guard against infinite loops
+	let lastSyncedTime = $state(0);
+	$effect(() => {
+		if (playheadAnimator && Math.abs(currentTime - lastSyncedTime) > 0.01) {
+			// Sync when time changed significantly (both playing and paused)
+			// When playing, rAF handles smooth updates, but we still sync here for seeks
+			playheadAnimator.syncToTime(currentTime);
+			lastSyncedTime = currentTime;
+		}
+	});
+
 	// Setup observer after component mounts
 	onMount(() => {
 		// Wait for initial render
@@ -571,6 +913,7 @@
 		return () => {
 			clearTimeout(initTimer);
 			chunkObserver?.disconnect();
+			playheadAnimator?.dispose();
 		};
 	});
 
@@ -581,92 +924,11 @@
 
 
 
-	// Calculate playhead position declaratively
+	// Calculate playhead position declaratively (for non-critical UI that still uses reactive values)
+	// Note: Actual playhead rendering is handled by PlayheadAnimator via rAF
 	const playheadInfo = $derived.by(() => {
 		if (!isInitialized || audioDuration <= 0) return null;
-
-		// Determine which chunk to show playhead in
-		let currentChunkIndex: number;
-		let chunkContainerIndex: number;
-
-		if (beatOffset > 0) {
-			if (currentTime < chunkDuration) {
-				currentChunkIndex = -1;
-				chunkContainerIndex = 0;
-			} else {
-				const timeAfterFirstChunk = currentTime - chunkDuration;
-				currentChunkIndex = Math.floor(timeAfterFirstChunk / chunkDuration);
-				chunkContainerIndex = currentChunkIndex + 1;
-			}
-		} else if (beatOffset < 0) {
-			const offsetInSeconds = Math.abs(beatOffset) / 1000;
-			if (currentTime < offsetInSeconds) {
-				currentChunkIndex = -1;
-				chunkContainerIndex = 0;
-			} else {
-				const adjustedTime = currentTime - offsetInSeconds;
-				currentChunkIndex = Math.floor(adjustedTime / chunkDuration);
-				chunkContainerIndex = currentChunkIndex + 1;
-			}
-		} else {
-			currentChunkIndex = Math.floor(currentTime / chunkDuration);
-			chunkContainerIndex = currentChunkIndex;
-		}
-
-		// Calculate playhead X position
-		let x = 0;
-		
-		if (currentChunkIndex === -1) {
-			// Special chunk -1 handling
-			if (beatOffset > 0) {
-				const offsetInSeconds = beatOffset / 1000;
-				const songStartX = (offsetInSeconds / chunkDuration) * containerWidth;
-				
-				if (currentTime === 0) {
-					x = songStartX;
-				} else if (currentTime <= chunkDuration) {
-					// Linear progression: map time within the song portion
-					const songDuration = chunkDuration - offsetInSeconds;
-					const progressRatio = currentTime / songDuration;
-					const songPortionWidth = containerWidth - songStartX;
-					x = songStartX + progressRatio * songPortionWidth;
-				}
-			} else if (beatOffset < 0) {
-				const offsetInSeconds = Math.abs(beatOffset) / 1000;
-				const songStartX = ((chunkDuration - offsetInSeconds) / chunkDuration) * containerWidth;
-				
-				if (currentTime === 0) {
-					x = songStartX;
-				} else if (currentTime <= offsetInSeconds) {
-					// Linear progression: map currentTime linearly across the song portion
-					const progressRatio = currentTime / offsetInSeconds;
-					const songPortionWidth = containerWidth - songStartX;
-					x = songStartX + progressRatio * songPortionWidth;
-				}
-			}
-		} else {
-			// Normal playhead positioning for regular chunks
-			if (beatOffset > 0) {
-				const chunkStartTime = chunkDuration + currentChunkIndex * chunkDuration;
-				const timeInChunk = currentTime - chunkStartTime;
-				x = (timeInChunk / chunkDuration) * containerWidth;
-			} else if (beatOffset < 0) {
-				const offsetInSeconds = Math.abs(beatOffset) / 1000;
-				const chunkStartTime = offsetInSeconds + currentChunkIndex * chunkDuration;
-				const timeInChunk = currentTime - chunkStartTime;
-				x = (timeInChunk / chunkDuration) * containerWidth;
-			} else {
-				const chunkStartTime = currentChunkIndex * chunkDuration;
-				const timeInChunk = currentTime - chunkStartTime;
-				x = (timeInChunk / chunkDuration) * containerWidth;
-			}
-		}
-
-		return {
-			chunkIndex: currentChunkIndex,
-			chunkContainerIndex,
-			x
-		};
+		return computePlayheadPosition(currentTime, chunkDuration, containerWidth, beatOffset, audioDuration);
 	});
 
 	// Compute currently active bar index for the active chunk only
@@ -1200,6 +1462,8 @@
 						onGroupExport={handleGroupExport}
 						showGroupExportButton={loopingChunkIndices.size > 1 && chunk.isLooping && Array.from(loopingChunkIndices).sort((a, b) => a - b)[0] === chunk.index}
 						loopingChunkCount={loopingChunkIndices.size}
+						registerPlayheadLayer={createRegisterCallback(chunk.index)}
+						unregisterPlayheadLayer={createUnregisterCallback(chunk.index)}
 					/>
 				{:else}
 					<!-- Render placeholder for non-visible chunk -->
