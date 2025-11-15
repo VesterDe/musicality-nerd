@@ -41,6 +41,10 @@
 	let originalEndTime = $state(0);
 	let hideTimeout: number | null = $state(null);
 	let lastPointerClientX = $state(0);
+	
+	// Preview state for drag/resize placeholder
+	let previewStartTimeMs = $state<number | null>(null);
+	let previewEndTimeMs = $state<number | null>(null);
 
 	// Show utility panel when either annotation or utility panel is hovered
 	const showUtility = $derived(isHovered || isUtilityHovered);
@@ -76,6 +80,7 @@
 	// Calculate annotation positioning
 	const isPointAnnotation = $derived(annotation.isPoint || annotation.startTimeMs === annotation.endTimeMs);
 
+	// Always use original annotation times for positioning the annotation itself
 	const startX = $derived(() => {
 		return timeToPixel(annotation.startTimeMs, chunkBounds, chunkWidth);
 	});
@@ -85,6 +90,25 @@
 	});
 
 	const width = $derived(isPointAnnotation ? 12 : Math.max(20, endX() - startX())); // Minimum width for duration annotations
+	
+	// Calculate preview placeholder positioning (for drag/resize preview)
+	const previewStartX = $derived(() => {
+		if (previewStartTimeMs === null) return null;
+		return timeToPixel(previewStartTimeMs, chunkBounds, chunkWidth);
+	});
+	
+	const previewEndX = $derived(() => {
+		if (previewEndTimeMs === null) return null;
+		return timeToPixel(previewEndTimeMs, chunkBounds, chunkWidth);
+	});
+	
+	const previewWidth = $derived(() => {
+		if (previewStartX() === null || previewEndX() === null) return null;
+		const isPreviewPoint = previewStartTimeMs === previewEndTimeMs;
+		return isPreviewPoint ? 12 : Math.max(20, previewEndX()! - previewStartX()!);
+	});
+	
+	const isShowingPreview = $derived(previewStartTimeMs !== null || previewEndTimeMs !== null);
 
 	function handleMouseDown(event: MouseEvent) {
 		if (isPlaceholder) return;
@@ -148,35 +172,44 @@
 		lastPointerClientX = event.clientX;
 
 		if (isResizing && resizeHandle) {
-			// Handle resizing
+			// Handle resizing - calculate preview position
 			if (resizeHandle === 'start') {
 				const newStartTime = Math.max(0, originalStartTime + deltaTime);
-				if (newStartTime < annotation.endTimeMs - 100) { // Minimum 100ms duration
-					annotation.startTimeMs = Math.round(newStartTime / 25) * 25; // Snap to 25ms
+				if (newStartTime < originalEndTime - 100) { // Minimum 100ms duration
+					previewStartTimeMs = Math.round(newStartTime / 25) * 25; // Snap to 25ms
+					previewEndTimeMs = originalEndTime; // Keep end time fixed
 				}
 			} else if (resizeHandle === 'end') {
 				const newEndTime = originalEndTime + deltaTime;
-				if (newEndTime > annotation.startTimeMs + 100) { // Minimum 100ms duration
-					annotation.endTimeMs = Math.round(newEndTime / 25) * 25; // Snap to 25ms
+				if (newEndTime > originalStartTime + 100) { // Minimum 100ms duration
+					previewStartTimeMs = originalStartTime; // Keep start time fixed
+					previewEndTimeMs = Math.round(newEndTime / 25) * 25; // Snap to 25ms
 				}
 			}
 		} else if (isDragging) {
-			// Handle moving
+			// Handle moving - calculate preview position
 			const duration = originalEndTime - originalStartTime;
 			const newStartTime = Math.max(0, originalStartTime + deltaTime);
-			annotation.startTimeMs = Math.round(newStartTime / 25) * 25; // Snap to 25ms
-			annotation.endTimeMs = annotation.startTimeMs + duration;
+			previewStartTimeMs = Math.round(newStartTime / 25) * 25; // Snap to 25ms
+			previewEndTimeMs = previewStartTimeMs + duration;
 		}
 	}
 
 	function handleGlobalMouseUp() {
 		if (isDragging || isResizing) {
+			// Use preview times if available, otherwise use current annotation times
+			const finalStartTime = previewStartTimeMs !== null ? previewStartTimeMs : annotation.startTimeMs;
+			const finalEndTime = previewEndTimeMs !== null ? previewEndTimeMs : annotation.endTimeMs;
+			
 			// Notify parent of the change
 			if (onMove) {
-				onMove(annotation.id, annotation.startTimeMs, annotation.endTimeMs);
+				onMove(annotation.id, finalStartTime, finalEndTime);
 			}
 		}
 
+		// Clear preview state
+		previewStartTimeMs = null;
+		previewEndTimeMs = null;
 		isDragging = false;
 		isResizing = false;
 		resizeHandle = null;
@@ -194,22 +227,26 @@
 		lastPointerClientX = touch.clientX;
 
 		if (isResizing && resizeHandle) {
+			// Handle resizing - calculate preview position
 			if (resizeHandle === 'start') {
 				const newStartTime = Math.max(0, originalStartTime + deltaTime);
-				if (newStartTime < annotation.endTimeMs - 100) {
-					annotation.startTimeMs = Math.round(newStartTime / 25) * 25;
+				if (newStartTime < originalEndTime - 100) {
+					previewStartTimeMs = Math.round(newStartTime / 25) * 25;
+					previewEndTimeMs = originalEndTime;
 				}
 			} else if (resizeHandle === 'end') {
 				const newEndTime = originalEndTime + deltaTime;
-				if (newEndTime > annotation.startTimeMs + 100) {
-					annotation.endTimeMs = Math.round(newEndTime / 25) * 25;
+				if (newEndTime > originalStartTime + 100) {
+					previewStartTimeMs = originalStartTime;
+					previewEndTimeMs = Math.round(newEndTime / 25) * 25;
 				}
 			}
 		} else if (isDragging) {
+			// Handle moving - calculate preview position
 			const duration = originalEndTime - originalStartTime;
 			const newStartTime = Math.max(0, originalStartTime + deltaTime);
-			annotation.startTimeMs = Math.round(newStartTime / 25) * 25;
-			annotation.endTimeMs = annotation.startTimeMs + duration;
+			previewStartTimeMs = Math.round(newStartTime / 25) * 25;
+			previewEndTimeMs = previewStartTimeMs + duration;
 		}
 
 		event.preventDefault();
@@ -217,10 +254,18 @@
 
 	function handleGlobalTouchEnd() {
 		if (isDragging || isResizing) {
+			// Use preview times if available, otherwise use current annotation times
+			const finalStartTime = previewStartTimeMs !== null ? previewStartTimeMs : annotation.startTimeMs;
+			const finalEndTime = previewEndTimeMs !== null ? previewEndTimeMs : annotation.endTimeMs;
+			
 			if (onMove) {
-				onMove(annotation.id, annotation.startTimeMs, annotation.endTimeMs);
+				onMove(annotation.id, finalStartTime, finalEndTime);
 			}
 		}
+		
+		// Clear preview state
+		previewStartTimeMs = null;
+		previewEndTimeMs = null;
 		isDragging = false;
 		isResizing = false;
 		resizeHandle = null;
@@ -284,6 +329,27 @@
 		}
 	}}
 >
+	<!-- Visual representation of the annotation -->
+	<div 
+		class="absolute top-0 left-0 h-full border-l-2 border-r-2 transition-opacity"
+		style:width="{width}px"
+		style:background-color="{annotation.color}"
+		style:opacity={isPlaceholder ? "0.3" : (isShowingPreview ? "0.1" : "0.2")}
+		style:border-color="{annotation.color}"
+	></div>
+	
+	<!-- Preview placeholder when dragging/resizing -->
+	{#if isShowingPreview && previewStartX() !== null && previewEndX() !== null && previewWidth() !== null}
+		<div 
+			class="absolute top-0 h-full border-l-2 border-r-2 border-dashed transition-opacity pointer-events-none z-10"
+			style:left="{previewStartX() - startX()}px"
+			style:width="{previewWidth()}px"
+			style:background-color="{annotation.color}"
+			style:opacity="0.3"
+			style:border-color="{annotation.color}"
+		></div>
+	{/if}
+	
 	<!-- Invisible interaction area - covers full height -->
 	<div class="w-full h-full" style:opacity="0"></div>
 

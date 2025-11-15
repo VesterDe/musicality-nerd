@@ -353,8 +353,9 @@
 			}
 			
 			// Calculate placeholder visibility for this chunk (lightweight)
+			// Use <= and >= to handle point annotations at chunk boundaries
 			const placeholderVisible = showPlaceholder && 
-				placeholderStartTimeMs < rawChunk.bounds.endTimeMs && placeholderEndTimeMs > rawChunk.bounds.startTimeMs;
+				placeholderStartTimeMs <= rawChunk.bounds.endTimeMs && placeholderEndTimeMs >= rawChunk.bounds.startTimeMs;
 			
 			let placeholderAnnotation = null;
 			if (placeholderVisible) {
@@ -742,15 +743,17 @@
 		const timeDiff = Math.abs(dragEndTimeMs - dragStartTimeMs);
 		const isPoint = timeDiff < 50; // Less than 50ms = point annotation
 
-		// Hide placeholder immediately - dragging is complete
-		showPlaceholder = false;
+		// Finalize placeholder times to match what will be shown in popup
+		annotationStartTimeMs = Math.min(dragStartTimeMs, dragEndTimeMs);
+		annotationEndTimeMs = isPoint ? annotationStartTimeMs : Math.max(dragStartTimeMs, dragEndTimeMs);
+		placeholderStartTimeMs = annotationStartTimeMs;
+		placeholderEndTimeMs = annotationEndTimeMs;
+		// Keep placeholder visible while popup is open - it will be cleared on save/cancel
 
 		// Show annotation creation popup
 		showAnnotationPopup = true;
 		popupX = event.clientX;
 		popupY = event.clientY;
-		annotationStartTimeMs = Math.min(dragStartTimeMs, dragEndTimeMs);
-		annotationEndTimeMs = isPoint ? annotationStartTimeMs : Math.max(dragStartTimeMs, dragEndTimeMs);
 		editingAnnotation = null;
 	}
 
@@ -796,16 +799,18 @@
 		const timeDiff = Math.abs(dragEndTimeMs - dragStartTimeMs);
 		const isPoint = timeDiff < 50; // Less than 50ms = point annotation
 
-		// Hide placeholder immediately - dragging is complete
-		showPlaceholder = false;
+		// Finalize placeholder times to match what will be shown in popup
+		annotationStartTimeMs = Math.min(dragStartTimeMs, dragEndTimeMs);
+		annotationEndTimeMs = isPoint ? annotationStartTimeMs : Math.max(dragStartTimeMs, dragEndTimeMs);
+		placeholderStartTimeMs = annotationStartTimeMs;
+		placeholderEndTimeMs = annotationEndTimeMs;
+		// Keep placeholder visible while popup is open - it will be cleared on save/cancel
 
 		// Use last known touch position for popup
 		showAnnotationPopup = true;
 		const touch = event.changedTouches && event.changedTouches[0] ? event.changedTouches[0] : null;
 		popupX = touch ? touch.clientX : lastPointerClientX;
 		popupY = touch ? touch.clientY : lastPointerClientY;
-		annotationStartTimeMs = Math.min(dragStartTimeMs, dragEndTimeMs);
-		annotationEndTimeMs = isPoint ? annotationStartTimeMs : Math.max(dragStartTimeMs, dragEndTimeMs);
 		editingAnnotation = null;
 	}
 
