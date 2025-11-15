@@ -1241,15 +1241,6 @@
 				</div>
 			{/if}
 
-			<!-- Beat Grid (Commented out temporarily) -->
-			<!-- {#if currentSession.beats.length > 0}
-				<BeatGrid 
-					beats={currentSession.beats}
-					{currentBeatIndex}
-					{currentTime}
-					{bpm}
-				/>
-			{/if} -->
 
 
 		{:else if sessionStore.isSessionInitializing}

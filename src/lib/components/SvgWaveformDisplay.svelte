@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import AnnotationPopup from './AnnotationPopup.svelte';
-	import SingleLineWaveformDisplay from './SingleLineWaveformDisplay.svelte';
+	import WaveformCanvasRow from './WaveformCanvasRow.svelte';
 	import type { Annotation } from '../types';
 	import type { AudioEngine } from '../audio/AudioEngine';
 	import { AudioExportService } from '../audio/AudioExportService';
@@ -113,19 +113,19 @@
 	
 	// Queue for registrations that happen before animator exists
 	const pendingRegistrations = new Map<number, {
-		line: SVGLineElement | null;
+		canvas: HTMLCanvasElement | null;
 		topTriangle: HTMLElement | null;
 		bottomTriangle: HTMLElement | null;
 	}>();
 	
 	// Stable callback functions for playhead layer registration
 	function createRegisterCallback(chunkIndex: number) {
-		return (line: SVGLineElement | null, topTriangle: HTMLElement | null, bottomTriangle: HTMLElement | null) => {
+		return (canvas: HTMLCanvasElement | null, topTriangle: HTMLElement | null, bottomTriangle: HTMLElement | null) => {
 			if (playheadAnimator) {
-				playheadAnimator.registerChunkLayer(chunkIndex, line, topTriangle, bottomTriangle);
+				playheadAnimator.registerChunkLayer(chunkIndex, canvas, topTriangle, bottomTriangle);
 			} else {
 				// Queue the registration for when animator is ready
-				pendingRegistrations.set(chunkIndex, { line, topTriangle, bottomTriangle });
+				pendingRegistrations.set(chunkIndex, { canvas, topTriangle, bottomTriangle });
 			}
 		};
 	}
@@ -240,7 +240,7 @@
 
 	/**
 	 * PlayheadAnimator: Manages smooth playhead updates via requestAnimationFrame
-	 * Updates DOM directly without triggering Svelte reactivity
+	 * Updates canvas directly without triggering Svelte reactivity
 	 */
 	class PlayheadAnimator {
 		private rafId: number | null = null;
@@ -248,9 +248,11 @@
 		private getCurrentTime: () => number;
 		private computePosition: (time: number) => { chunkIndex: number; chunkContainerIndex: number; x: number } | null;
 		private chunkLayers: Map<number, {
-			line: SVGLineElement | null;
+			canvas: HTMLCanvasElement | null;
+			ctx: CanvasRenderingContext2D | null;
 			topTriangle: HTMLElement | null;
 			bottomTriangle: HTMLElement | null;
+			height: number;
 		}> = new Map();
 
 		constructor(
@@ -266,11 +268,13 @@
 		 */
 		registerChunkLayer(
 			chunkIndex: number,
-			line: SVGLineElement | null,
+			canvas: HTMLCanvasElement | null,
 			topTriangle: HTMLElement | null,
 			bottomTriangle: HTMLElement | null
 		): void {
-			this.chunkLayers.set(chunkIndex, { line, topTriangle, bottomTriangle });
+			const ctx = canvas?.getContext('2d') || null;
+			const height = canvas?.height || 0;
+			this.chunkLayers.set(chunkIndex, { canvas, ctx, topTriangle, bottomTriangle, height });
 			// Immediately sync position - this will show playhead on the correct chunk
 			// Sync both immediately and in next frame to ensure it works
 			const currentTime = this.getCurrentTime();
@@ -295,10 +299,11 @@
 			const pos = this.computePosition(time);
 			if (!pos) return;
 
-			// Hide all playhead layers first
+			// Clear all playhead canvases first
 			for (const [index, layer] of this.chunkLayers.entries()) {
-				if (layer.line) {
-					layer.line.style.display = 'none';
+				if (layer.ctx && layer.canvas) {
+					// Clear entire canvas (already scaled for DPR)
+					layer.ctx.clearRect(0, 0, layer.canvas.width, layer.canvas.height);
 				}
 				if (layer.topTriangle) {
 					layer.topTriangle.style.display = 'none';
@@ -310,18 +315,24 @@
 
 			// Show and position playhead for the active chunk
 			const activeLayer = this.chunkLayers.get(pos.chunkIndex);
-			if (!activeLayer) {
+			if (!activeLayer || !activeLayer.ctx || !activeLayer.canvas) {
 				return;
 			}
 
 			const roundedX = Math.round(pos.x);
+			const dpr = window.devicePixelRatio || 1;
+			// Canvas context is already scaled by setupHighDPICanvas, so use logical coordinates
+			const logicalHeight = activeLayer.height / dpr;
 			
-			if (activeLayer.line) {
-				// SVG line: update x1 and x2 attributes directly
-				activeLayer.line.setAttribute('x1', String(roundedX));
-				activeLayer.line.setAttribute('x2', String(roundedX));
-				activeLayer.line.style.display = 'block';
-			}
+			// Draw playhead line on canvas (context is already scaled, so use logical coordinates)
+			activeLayer.ctx.strokeStyle = '#fbbf24';
+			activeLayer.ctx.lineWidth = 1.5;
+			activeLayer.ctx.globalAlpha = 0.3;
+			activeLayer.ctx.beginPath();
+			activeLayer.ctx.moveTo(roundedX, 0);
+			activeLayer.ctx.lineTo(roundedX, logicalHeight);
+			activeLayer.ctx.stroke();
+			activeLayer.ctx.globalAlpha = 1.0;
 			
 			if (activeLayer.topTriangle) {
 				activeLayer.topTriangle.style.display = 'block';
@@ -407,7 +418,7 @@
 		return Math.pow(2, Math.ceil(Math.log2(n)));
 	}
 
-	const MAX_PER_BEAT = 128; // Guardrail to prevent DOM explosion
+	const MAX_PER_BEAT = 128; // Guardrail to prevent excessive bar generation
 	const MIN_PER_BEAT = 8; // Minimum for auto mode
 
 	// Compute rectangles per beat using power-of-two constraint
@@ -835,8 +846,8 @@
 			playheadAnimator = animator;
 			
 			// Apply all pending registrations that happened before animator was ready
-			for (const [chunkIndex, { line, topTriangle, bottomTriangle }] of pendingRegistrations.entries()) {
-				animator.registerChunkLayer(chunkIndex, line, topTriangle, bottomTriangle);
+			for (const [chunkIndex, { canvas, topTriangle, bottomTriangle }] of pendingRegistrations.entries()) {
+				animator.registerChunkLayer(chunkIndex, canvas, topTriangle, bottomTriangle);
 			}
 			pendingRegistrations.clear();
 			
@@ -1074,8 +1085,9 @@
 
 
 	function handleWaveformMouseDown(event: MouseEvent, chunkIndex: number, bounds: ChunkBounds) {
-		const svg = event.currentTarget as SVGElement;
-		const rect = svg.getBoundingClientRect();
+		// Canvas element for waveform interaction
+		const element = event.currentTarget as HTMLCanvasElement;
+		const rect = element.getBoundingClientRect();
 		const x = event.clientX - rect.left;
 		
 		// Convert pixel position to time (in milliseconds)
@@ -1117,8 +1129,9 @@
 	function handleWaveformTouchStart(event: TouchEvent, chunkIndex: number, bounds: ChunkBounds) {
 		if (event.touches.length === 0) return;
 		const touch = event.touches[0];
-		const svg = event.currentTarget as SVGElement;
-		const rect = svg.getBoundingClientRect();
+		// Canvas element for waveform interaction
+		const element = event.currentTarget as HTMLCanvasElement;
+		const rect = element.getBoundingClientRect();
 		const x = touch.clientX - rect.left;
 		
 		// Convert pixel position to time (in milliseconds)
@@ -1165,9 +1178,11 @@
 		const chunkElement = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-chunk-index]');
 		if (chunkElement) {
 			const chunkIndex = parseInt(chunkElement.getAttribute('data-chunk-index') || '0');
-			const svg = chunkElement.querySelector('svg');
-			if (svg) {
-				const rect = svg.getBoundingClientRect();
+			// Look for canvas element
+			const canvas = chunkElement.querySelector('canvas');
+			const waveformElement = canvas;
+			if (waveformElement) {
+				const rect = waveformElement.getBoundingClientRect();
 				const x = event.clientX - rect.left;
 				const bounds = calculateChunkBounds(chunkIndex, waveformConfig);
 				
@@ -1218,9 +1233,11 @@
 		const chunkElement = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('[data-chunk-index]');
 		if (chunkElement) {
 			const chunkIndex = parseInt(chunkElement.getAttribute('data-chunk-index') || '0');
-			const svg = chunkElement.querySelector('svg');
-			if (svg) {
-				const rect = (svg as SVGElement).getBoundingClientRect();
+			// Look for canvas element
+			const canvas = chunkElement.querySelector('canvas');
+			const waveformElement = canvas;
+			if (waveformElement) {
+				const rect = waveformElement.getBoundingClientRect();
 				const x = touch.clientX - rect.left;
 				const bounds = calculateChunkBounds(chunkIndex, waveformConfig);
 				
@@ -1458,7 +1475,7 @@
 						{#each chunkData.slice(virtualWindow.startIndex, virtualWindow.endIndex) as chunk (chunk.index)}
 							{#if chunk.shouldRenderContent}
 								<!-- Render full chunk with content -->
-								<SingleLineWaveformDisplay
+								<WaveformCanvasRow
 									chunkIndex={chunk.index}
 									bounds={chunk.bounds}
 									isSpecialChunk={chunk.isSpecialChunk}
@@ -1531,32 +1548,3 @@
 	on:save={handleAnnotationSave}
 	on:cancel={handleAnnotationCancel}
 />
-
-<style>
-	/* Custom styles for the SVG waveform */
-	:global(svg) {
-		user-select: none;
-	}
-
-	/* Beat marker active state with smooth transitions */
-	:global(.beat-active) {
-		transition: stroke 0.05s ease-out, stroke-width 0.05s ease-out, filter 0.05s ease-out;
-		animation: beatFlash 0.1s ease-out;
-	}
-
-	/* Quick flash animation for beat markers as playhead crosses them */
-	@keyframes beatFlash {
-		0% {
-			opacity: 1;
-			stroke-width: 3;
-		}
-		50% {
-			opacity: 0.8;
-			stroke-width: 4;
-		}
-		100% {
-			opacity: 1;
-			stroke-width: 3;
-		}
-	}
-</style>

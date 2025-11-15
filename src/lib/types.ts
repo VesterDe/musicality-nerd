@@ -49,11 +49,6 @@ export interface SpectrogramConfig {
 	colorMap: string;
 }
 
-export interface BeatGridConfig {
-	groupByFour: boolean;
-	snapLength: number; // in beats
-}
-
 export interface AudioAnalysisData {
 	timeData: Float32Array;
 	frequencyData: Float32Array;

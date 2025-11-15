@@ -1,6 +1,7 @@
 /**
- * SVG Waveform Utilities
- * Functions for processing audio peak data and generating SVG waveform visualizations
+ * Waveform Utilities
+ * Functions for processing audio peak data and generating waveform visualizations
+ * (Used by both SVG legacy code and Canvas renderer)
  */
 
 import type { Annotation } from '../types';
@@ -118,57 +119,6 @@ export function downsamplePeaks(
 	return bars;
 }
 
-/**
- * Generate SVG path for smooth waveform curve
- */
-export function generateSmoothWaveformPath(
-	peaksData: Float32Array,
-	bounds: ChunkBounds,
-	width: number,
-	height: number,
-	targetPoints: number = 200
-): string {
-	const { startSample, endSample } = bounds;
-	const sampleCount = endSample - startSample;
-	const samplesPerPoint = Math.max(1, Math.floor(sampleCount / targetPoints));
-	
-	const points: Array<{ x: number; y: number }> = [];
-	const centerY = height / 2;
-	
-	for (let i = 0; i < targetPoints; i++) {
-		const sampleIndex = startSample + i * samplesPerPoint;
-		
-		if (sampleIndex >= peaksData.length) break;
-		
-		const amplitude = peaksData[sampleIndex];
-		const x = (i / (targetPoints - 1)) * width;
-		const y = centerY - (amplitude * centerY * 1.5); // 150% of available height
-		
-		points.push({ x, y });
-	}
-	
-	if (points.length === 0) return '';
-	
-	// Create smooth SVG path using quadratic bezier curves
-	let path = `M ${points[0].x} ${points[0].y}`;
-	
-	for (let i = 1; i < points.length; i++) {
-		const curr = points[i];
-		
-		if (i === points.length - 1) {
-			// Last point - straight line
-			path += ` L ${curr.x} ${curr.y}`;
-		} else {
-			// Smooth curve to next point
-			const next = points[i + 1];
-			const cpX = curr.x;
-			const cpY = (curr.y + next.y) / 2;
-			path += ` Q ${cpX} ${curr.y} ${(curr.x + next.x) / 2} ${cpY}`;
-		}
-	}
-	
-	return path;
-}
 
 export interface WaveformBar {
 	x: number;
@@ -273,7 +223,7 @@ function generatePreSongChunkBars(
 		const songStartPosition = offsetInSeconds / chunkDuration;
 		const songStartBar = Math.floor(songStartPosition * targetBars);
 
-		// Only generate song bars, no empty bars (empty area handled by SVG rect)
+		// Only generate song bars, no empty bars (empty area handled by canvas drawing)
 		const bars: Array<WaveformBar> = [];
 		const songBarsCount = targetBars - songStartBar;
 
@@ -302,7 +252,7 @@ function generatePreSongChunkBars(
 		const songPosition = (chunkDuration - offsetInSeconds) / chunkDuration;
 		const songStartBar = Math.floor(songPosition * targetBars);
 
-		// Only generate song bars, no empty bars (empty area handled by SVG rect)
+		// Only generate song bars, no empty bars (empty area handled by canvas drawing)
 		const bars: Array<WaveformBar> = [];
 		const songBarsCount = targetBars - songStartBar;
 
