@@ -24,7 +24,8 @@
 			playback: true,
 			beatOffset: false,
 			display: false,
-			annotations: false
+			annotations: false,
+			keyboardShortcuts: false
 		};
 		
 		if (typeof localStorage !== 'undefined') {
@@ -169,6 +170,37 @@
 			{#if openPanels.annotations}
 				<div class="px-4 pb-4 pt-2 border-t border-gray-700">
 					<AnnotationSettings />
+				</div>
+			{/if}
+		</div>
+		
+		<!-- Keyboard Shortcuts -->
+		<div class="bg-gray-900 rounded-lg overflow-hidden">
+			<button
+				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				onclick={() => togglePanel('keyboardShortcuts')}
+			>
+				<span class="text-sm font-medium text-gray-200">Keyboard Shortcuts</span>
+				<svg 
+					class="w-4 h-4 text-gray-400 transition-transform duration-200 {openPanels.keyboardShortcuts ? 'rotate-180' : ''}"
+					fill="none" 
+					stroke="currentColor" 
+					viewBox="0 0 24 24"
+				>
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+				</svg>
+			</button>
+			{#if openPanels.keyboardShortcuts}
+				<div class="px-4 pb-4 pt-2 border-t border-gray-700">
+					<div class="space-y-2 text-xs text-gray-400">
+						<div><kbd class="bg-gray-700 px-1 rounded">Space</kbd> Play/Pause</div>
+						<div><kbd class="bg-gray-700 px-1 rounded">←</kbd> Jump back 8 beats</div>
+						<div><kbd class="bg-gray-700 px-1 rounded">→</kbd> Jump forward 8 beats</div>
+						<div class="pt-2 border-t border-gray-700">
+							<div><kbd class="bg-gray-700 px-1 rounded">M</kbd> Toggle annotation mode</div>
+							<div><kbd class="bg-gray-700 px-1 rounded">A</kbd> Create annotation (hold while playing)</div>
+						</div>
+					</div>
 				</div>
 			{/if}
 		</div>

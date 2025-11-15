@@ -1448,7 +1448,7 @@
 		<div 
 			bind:this={scrollContainer}
 			class="overflow-y-auto w-full"
-			style="height: 600px; max-height: calc(100vh - 300px);"
+			style="height: 100vh; max-height: 100vh;"
 		>
 			<!-- Spacer for total height to maintain scrollbar -->
 			<div style="height: {chunkMetadata.length * chunkHeight}px; position: relative;">

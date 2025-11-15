@@ -1252,22 +1252,6 @@
 			{/if} -->
 
 
-			<!-- Keyboard Shortcuts Help -->
-			<div class="bg-gray-800 rounded-lg p-4">
-				<h3 class="text-sm font-semibold text-gray-300 mb-2">Keyboard Shortcuts</h3>
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-400">
-					<div><kbd class="bg-gray-700 px-1 rounded">Space</kbd> Play/Pause</div>
-					<div><kbd class="bg-gray-700 px-1 rounded">←</kbd> Jump back 8 beats</div>
-					<div><kbd class="bg-gray-700 px-1 rounded">→</kbd> Jump forward 8 beats</div>
-				</div>
-			</div>
-
-			<!-- Footer -->
-			<div class="bg-gray-800 rounded-lg p-4 text-center">
-				<p class="text-sm text-gray-400">
-					Made with ❤️ by <a href="https://vester.si/blog/me?utm_source=musicality-nerd" target="_blank" class="text-amber-500 hover:text-amber-400 transition-colors">Demjan</a>
-				</p>
-			</div>
 		{:else if sessionStore.isSessionInitializing}
 			<!-- Loading state while checking for previous session -->
 			<div class="bg-gray-800 rounded-lg p-8 text-center">
@@ -1327,6 +1311,13 @@
 			<Sidebar {audioEngine} {bpmDetector} {persistenceService} />
 		{/if}
 	</div>
+	
+	<!-- Footer -->
+	<footer class="bg-gray-800 border-t border-gray-700 px-4 py-3 text-center">
+		<p class="text-sm text-gray-400">
+			Made with ❤️ by <a href="https://vester.si/blog/me?utm_source=musicality-nerd" target="_blank" class="text-amber-500 hover:text-amber-400 transition-colors">Demjan</a>
+		</p>
+	</footer>
 </main>
 
 
