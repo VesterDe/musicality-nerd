@@ -20,6 +20,14 @@ export default defineConfig({
       'web-audio-beat-detector',
       'wavesurfer.js',
       'meyda',
+      '@ffmpeg/ffmpeg',
+      '@ffmpeg/util',
     ],
+  },
+  optimizeDeps: {
+    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
+  },
+  worker: {
+    format: 'es',
   },
 });

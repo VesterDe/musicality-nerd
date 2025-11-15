@@ -89,7 +89,18 @@
 		isDragOver = false;
 		
 		if (event.dataTransfer?.files) {
-			onFilesDrop(event.dataTransfer.files);
+			const files = event.dataTransfer.files;
+			// Check if it's a single .vdjstems file
+			if (files.length === 1) {
+				const file = files[0];
+				if (file.name.toLowerCase().endsWith('.vdjstems') || file.name.toLowerCase().endsWith('.mp3.vdjstems')) {
+					// Handle as .vdjstems file - pass to parent handler
+					onFilesDrop(files);
+					return;
+				}
+			}
+			// Otherwise, handle as regular stem files
+			onFilesDrop(files);
 		}
 	}
 
@@ -122,20 +133,37 @@
 			<div class="text-3xl">🎛️</div>
 			<h3 class="text-lg font-semibold text-white">Add New Stem Session</h3>
 			<p class="text-gray-400 text-sm">
-				Drop 2+ MP3 files here or click to browse
+				Drop 2+ MP3 files or a VirtualDJ .vdjstems file here or click to browse
 			</p>
+			<div class="mt-4 p-3 bg-amber-900/30 border border-amber-700/50 rounded-lg">
+				<p class="text-xs text-amber-300">
+					<strong>Note:</strong> Extracting stems from .vdjstems files may take 30-60 seconds. 
+					The ffmpeg engine loads on-demand and processes entirely in your browser.
+				</p>
+			</div>
 			<input 
 				type="file" 
-				accept="audio/*,audio/mpeg,audio/mp3,audio/mp4,audio/m4a,audio/ogg,audio/wav,audio/webm,.mp3,.wav"
+				accept="audio/*,audio/mpeg,audio/mp3,audio/mp4,audio/m4a,audio/ogg,audio/wav,audio/webm,.mp3,.wav,.vdjstems"
 				multiple
 				class="hidden"
 				bind:this={fileInput}
 				onchange={(e) => {
 					const target = e.target as HTMLInputElement;
-					if (target.files && target.files.length >= 2) {
-						onFilesDrop(target.files);
-					} else {
-						alert('Stem mode requires at least 2 audio files');
+					if (target.files) {
+						// Check if it's a single .vdjstems file
+						if (target.files.length === 1) {
+							const file = target.files[0];
+							if (file.name.toLowerCase().endsWith('.vdjstems') || file.name.toLowerCase().endsWith('.mp3.vdjstems')) {
+								onFilesDrop(target.files);
+								return;
+							}
+						}
+						// Otherwise, require at least 2 files
+						if (target.files.length >= 2) {
+							onFilesDrop(target.files);
+						} else {
+							alert('Stem mode requires at least 2 audio files or a VirtualDJ .vdjstems file');
+						}
 					}
 				}}
 			/>

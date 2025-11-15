@@ -141,6 +141,60 @@ export class PersistenceService {
 	}
 
 	/**
+	 * Create a new stem session from VirtualDJ stems extraction
+	 * Includes download blobs for each stem
+	 */
+	async createStemSessionFromVdjStems(files: FileList, downloadBlobs: Blob[]): Promise<TrackSession> {
+		if (files.length < 2) {
+			throw new Error('Stem sessions require at least 2 audio files');
+		}
+
+		if (files.length !== downloadBlobs.length) {
+			throw new Error('Number of files and download blobs must match');
+		}
+
+		// Default colors for stems (can be customized later)
+		const defaultColors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+		
+		const stems: Stem[] = await Promise.all(
+			Array.from(files).map(async (file, index) => {
+				const arrayBuffer = await file.arrayBuffer();
+				return {
+					id: uuidv4(),
+					filename: file.name,
+					mp3Blob: arrayBuffer,
+					enabled: true, // All stems enabled by default
+					color: defaultColors[index % defaultColors.length],
+					downloadBlob: downloadBlobs[index] // Preserve blob for download
+				};
+			})
+		);
+
+		// Use the first file's name as the session filename, removing .vdjstems extension if present
+		const baseName = files[0].name.replace(/\.(vdjstems|mp3\.vdjstems)$/i, '').replace(/\.[^/.]+$/, '');
+		const sessionFilename = `${baseName} (${files.length} stems)`;
+
+		const session: TrackSession = {
+			id: uuidv4(),
+			filename: sessionFilename,
+			created: new Date().toISOString(),
+			bpm: 0, // Default BPM - will be detected from first stem
+			beatOffset: 0, // Default offset in milliseconds
+			manualBpm: false, // BPM not manually set initially
+			beatsPerLine: 4, // Default beats per line
+			beats: [],
+			annotations: [], // Initialize empty annotations array
+			targetBPM: 0, // Default target BPM (same as default BPM)
+			rectsPerBeatMode: 'auto', // Default to auto mode
+			mode: 'stem',
+			stems: stems
+		};
+
+		await this.saveSession(session);
+		return session;
+	}
+
+	/**
 	 * Update a session with new data
 	 */
 	async updateSession(session: TrackSession): Promise<TrackSession> {

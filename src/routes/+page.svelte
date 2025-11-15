@@ -9,6 +9,8 @@
 	import SongList from '$lib/components/SongList.svelte';
 	import StemList from '$lib/components/StemList.svelte';
 	import Sidebar from '$lib/components/sidebar/Sidebar.svelte';
+	import { ffmpegClient } from '$lib/utils/ffmpegClient';
+	import { detectBpmWithStemFallback } from '$lib/utils/bpmDetection';
 	import type { TrackSession, Annotation } from '$lib/types';
 	let { data } = $props();
 
@@ -27,6 +29,8 @@
 	let selectedMode: 'normal' | 'stem' | null = $state(null); // Mode selector state
 	let isEditingSessionName = $state(false);
 	let editingSessionName = $state('');
+	let isExtractingStems = $state(false);
+	let stemExtractionProgress = $state<string>('');
 	
 	// Throttling for coarse time updates (~10Hz)
 	let lastTimeUpdate = $state(0);
@@ -81,8 +85,8 @@
 
 		bpmDetector.onDetectionError = (error) => {
 			console.error('BPM detection failed:', error);
-			alert('Failed to detect BPM automatically. Using default tempo of 120 BPM.');
-			sessionStore.updateBPM(120, false);
+			// Don't show alert here - detectBpmWithStemFallback handles errors and only alerts if all stems fail
+			// This callback is kept for logging purposes
 		};
 
 		// Setup keyboard shortcuts (browser only)
@@ -133,6 +137,7 @@
 		}
 	}
 
+
 	async function loadSessionData(session: TrackSession): Promise<void> {
 		// Use stem loader for stem sessions
 		if (session.mode === 'stem') {
@@ -167,18 +172,15 @@
 		
 		// Run BPM detection if not manually set
 		if (!session.manualBpm) {
-			const audioBuffer = audioEngine.getAudioBuffer();
-			if (audioBuffer) {
-				try {
-					sessionStore.setIsDetectingBpm(true);
-					const detectedBpm = await bpmDetector.detectBpm(audioBuffer);
-					finalBpm = detectedBpm;
-				} catch (error) {
-					console.error('Auto BPM detection failed:', error);
-					// Keep existing BPM from session
-				} finally {
-					sessionStore.setIsDetectingBpm(false);
-				}
+			try {
+				sessionStore.setIsDetectingBpm(true);
+				const detectedBpm = await detectBpmWithStemFallback(audioEngine, bpmDetector);
+				finalBpm = detectedBpm;
+			} catch (error) {
+				console.error('Auto BPM detection failed:', error);
+				// Keep existing BPM from session
+			} finally {
+				sessionStore.setIsDetectingBpm(false);
 			}
 		}
 		
@@ -217,7 +219,18 @@
 
 	async function handleFilesDrop(files: FileList) {
 		const file = files[0];
-		if (!file || !file.type.startsWith('audio/')) {
+		if (!file) {
+			alert('Please drop an audio file');
+			return;
+		}
+
+		// Check if it's a VirtualDJ stems file
+		if (file.name.toLowerCase().endsWith('.vdjstems') || file.name.toLowerCase().endsWith('.mp3.vdjstems')) {
+			await handleVdjStemsDrop(file);
+			return;
+		}
+
+		if (!file.type.startsWith('audio/')) {
 			alert('Please drop an MP3 or other audio file');
 			return;
 		}
@@ -229,6 +242,9 @@
 			const newSession = await persistenceService.createSession(file);
 			
 			// Load audio
+			if (!newSession.mp3Blob) {
+				throw new Error('Session missing audio data');
+			}
 			await audioEngine.loadTrack(newSession.mp3Blob);
 			const audioDuration = audioEngine.getDuration();
 			sessionStore.setDuration(audioDuration);
@@ -238,19 +254,16 @@
 			let finalBeatOffset = 0; // Default offset
 			
 			// Run automatic BPM detection
-			const audioBuffer = audioEngine.getAudioBuffer();
-			if (audioBuffer) {
-				try {
-					sessionStore.setIsDetectingBpm(true);
-					const detectedBpm = await bpmDetector.detectBpm(audioBuffer);
-					finalBpm = detectedBpm;
-				} catch (error) {
-					console.error('Auto BPM detection failed:', error);
-					// Use default BPM
-					finalBpm = 120;
-				} finally {
-					sessionStore.setIsDetectingBpm(false);
-				}
+			try {
+				sessionStore.setIsDetectingBpm(true);
+				const detectedBpm = await detectBpmWithStemFallback(audioEngine, bpmDetector);
+				finalBpm = detectedBpm;
+			} catch (error) {
+				console.error('Auto BPM detection failed:', error);
+				// Use default BPM
+				finalBpm = 120;
+			} finally {
+				sessionStore.setIsDetectingBpm(false);
 			}
 			
 			// Update session with final BPM and regenerate beats
@@ -271,7 +284,141 @@
 		}
 	}
 
+	async function handleVdjStemsDrop(file: File) {
+		try {
+			sessionStore.setIsSessionInitializing(true);
+			isExtractingStems = true;
+			stemExtractionProgress = 'Loading ffmpeg engine...';
+
+			// Extract stems using ffmpeg.wasm with progress updates
+			const stemFiles = await ffmpegClient.extractVirtualDjStems(file, (message) => {
+				stemExtractionProgress = message;
+			});
+			
+			if (stemFiles.length === 0) {
+				throw new Error('No stems were extracted from the file');
+			}
+
+			stemExtractionProgress = `Extracted ${stemFiles.length} stems. Decoding audio...`;
+
+			// Decode each stem into AudioBuffer and create File objects for session creation
+			const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+			const stemBlobs: Blob[] = [];
+			const stemBuffers: ArrayBuffer[] = [];
+
+			for (const stemFile of stemFiles) {
+				// Convert Uint8Array to ArrayBuffer for session storage
+				// Handle both ArrayBuffer and SharedArrayBuffer (if available)
+				const buffer = stemFile.data.buffer;
+				let arrayBuffer: ArrayBuffer;
+				
+				// Check if SharedArrayBuffer is available and if buffer is a SharedArrayBuffer
+				if (typeof SharedArrayBuffer !== 'undefined' && buffer instanceof SharedArrayBuffer) {
+					// Convert SharedArrayBuffer to ArrayBuffer by copying
+					const uint8View = new Uint8Array(buffer);
+					const copy = new Uint8Array(uint8View.length);
+					copy.set(uint8View);
+					// Ensure we get a regular ArrayBuffer, not SharedArrayBuffer
+					arrayBuffer = new ArrayBuffer(copy.length);
+					new Uint8Array(arrayBuffer).set(copy);
+				} else {
+					// For regular ArrayBuffer, slice it
+					const sliced = buffer.slice(
+						stemFile.data.byteOffset,
+						stemFile.data.byteOffset + stemFile.data.byteLength
+					);
+					// Ensure it's an ArrayBuffer (not SharedArrayBuffer) by creating a new one if needed
+					if (sliced instanceof ArrayBuffer) {
+						arrayBuffer = sliced;
+					} else {
+						// Fallback: copy to ensure we have a regular ArrayBuffer
+						const uint8View = new Uint8Array(sliced);
+						const copy = new Uint8Array(uint8View.length);
+						copy.set(uint8View);
+						arrayBuffer = copy.buffer;
+					}
+				}
+				stemBuffers.push(arrayBuffer);
+				stemBlobs.push(stemFile.blob);
+			}
+
+			// Create a stem session from the extracted stems
+			// We need to create File objects from the blobs for createStemSession
+			const stemFileObjects = stemFiles.map((stemFile, index) => {
+				return new File([stemFile.blob], `${stemFile.name}.mp3`, { type: 'audio/mpeg' });
+			});
+
+			// Create a FileList-like object
+			const fileList = Object.assign(stemFileObjects, {
+				length: stemFileObjects.length,
+				item: (index: number) => stemFileObjects[index] || null,
+			}) as unknown as FileList;
+
+			// Create stem session
+			const newSession = await persistenceService.createStemSessionFromVdjStems(
+				fileList,
+				stemFiles.map(sf => sf.blob)
+			);
+
+			// Set session early so BPM detection can access stem metadata
+			sessionStore.setCurrentSession(newSession);
+
+			stemExtractionProgress = 'Loading stems into audio engine...';
+
+			// Load all stems into audio engine
+			await audioEngine.loadStems(stemBuffers);
+			const audioDuration = audioEngine.getDuration();
+			sessionStore.setDuration(audioDuration);
+
+			// Initialize local state
+			let finalBpm = 120; // Default BPM
+			let finalBeatOffset = 0; // Default offset
+
+			// Run automatic BPM detection with stem fallback
+			try {
+				sessionStore.setIsDetectingBpm(true);
+				const detectedBpm = await detectBpmWithStemFallback(audioEngine, bpmDetector);
+				finalBpm = detectedBpm;
+			} catch (error) {
+				console.error('Auto BPM detection failed:', error);
+				finalBpm = 120;
+			} finally {
+				sessionStore.setIsDetectingBpm(false);
+			}
+
+			// Update session with final BPM and regenerate beats
+			const updatedSession = await persistenceService.updateSessionBpm(newSession.id, finalBpm, audioDuration, false);
+
+			// Set all state at once after everything is ready
+			sessionStore.bpm = finalBpm;
+			sessionStore.beatOffset = finalBeatOffset;
+			sessionStore.sliderBeatOffset = finalBeatOffset;
+			sessionStore.setCurrentSession(updatedSession);
+			sessionStore.updateTargetBPM(finalBpm);
+
+			// Switch to stem mode if not already
+			selectedMode = 'stem';
+
+		} catch (error) {
+			console.error('Failed to extract stems:', error);
+			alert(`Failed to extract stems from VirtualDJ file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		} finally {
+			isExtractingStems = false;
+			stemExtractionProgress = '';
+			sessionStore.setIsSessionInitializing(false);
+		}
+	}
+
 	async function handleStemFilesDrop(files: FileList) {
+		// Check if it's a single .vdjstems file
+		if (files.length === 1) {
+			const file = files[0];
+			if (file.name.toLowerCase().endsWith('.vdjstems') || file.name.toLowerCase().endsWith('.mp3.vdjstems')) {
+				await handleVdjStemsDrop(file);
+				return;
+			}
+		}
+
 		// Validate files
 		const audioFiles = Array.from(files).filter(file => file.type.startsWith('audio/'));
 		if (audioFiles.length < 2) {
@@ -300,21 +447,18 @@
 			let finalBpm = 120; // Default BPM
 			let finalBeatOffset = 0; // Default offset
 			
-			// Run automatic BPM detection on first stem (canonical)
+			// Run automatic BPM detection with stem fallback
 			console.time('BPM detection');
-			const audioBuffer = audioEngine.getAudioBuffer();
-			if (audioBuffer) {
-				try {
-					sessionStore.setIsDetectingBpm(true);
-					const detectedBpm = await bpmDetector.detectBpm(audioBuffer);
-					finalBpm = detectedBpm;
-				} catch (error) {
-					console.error('Auto BPM detection failed:', error);
-					// Use default BPM
-					finalBpm = 120;
-				} finally {
-					sessionStore.setIsDetectingBpm(false);
-				}
+			try {
+				sessionStore.setIsDetectingBpm(true);
+				const detectedBpm = await detectBpmWithStemFallback(audioEngine, bpmDetector);
+				finalBpm = detectedBpm;
+			} catch (error) {
+				console.error('Auto BPM detection failed:', error);
+				// Use default BPM
+				finalBpm = 120;
+			} finally {
+				sessionStore.setIsDetectingBpm(false);
 			}
 			console.timeEnd('BPM detection');
 			
@@ -379,18 +523,15 @@
 		
 		// Run BPM detection if not manually set
 		if (!session.manualBpm) {
-			const audioBuffer = audioEngine.getAudioBuffer();
-			if (audioBuffer) {
-				try {
-					sessionStore.setIsDetectingBpm(true);
-					const detectedBpm = await bpmDetector.detectBpm(audioBuffer);
-					finalBpm = detectedBpm;
-				} catch (error) {
-					console.error('Auto BPM detection failed:', error);
-					// Keep existing BPM from session
-				} finally {
-					sessionStore.setIsDetectingBpm(false);
-				}
+			try {
+				sessionStore.setIsDetectingBpm(true);
+				const detectedBpm = await detectBpmWithStemFallback(audioEngine, bpmDetector);
+				finalBpm = detectedBpm;
+			} catch (error) {
+				console.error('Auto BPM detection failed:', error);
+				// Keep existing BPM from session
+			} finally {
+				sessionStore.setIsDetectingBpm(false);
 			}
 		}
 		
@@ -1233,8 +1374,21 @@
 				<!-- Loading state for waveform -->
 				<div class="bg-gray-800 rounded-lg p-8 text-center">
 					<div class="text-gray-400">
-						<div class="animate-pulse">Loading and analyzing audio...</div>
-						{#if sessionStore.isDetectingBpm}
+						<div class="animate-pulse">
+							{isExtractingStems ? 'Extracting stems from VirtualDJ file...' : 'Loading and analyzing audio...'}
+						</div>
+						{#if isExtractingStems}
+							<div class="mt-4 p-4 bg-blue-900/30 border border-blue-700/50 rounded-lg max-w-md mx-auto">
+								<p class="text-sm text-blue-300 mb-2">
+									<strong>Stem extraction in progress</strong>
+								</p>
+								{#if stemExtractionProgress}
+									<p class="text-xs text-blue-400">{stemExtractionProgress}</p>
+								{:else}
+									<p class="text-xs text-blue-400">This may take 30-60 seconds...</p>
+								{/if}
+							</div>
+						{:else if sessionStore.isDetectingBpm}
 							<div class="text-sm mt-2">Detecting BPM...</div>
 						{/if}
 					</div>
@@ -1244,10 +1398,26 @@
 
 
 		{:else if sessionStore.isSessionInitializing}
-			<!-- Loading state while checking for previous session -->
+			<!-- Loading state while checking for previous session or extracting stems -->
 			<div class="bg-gray-800 rounded-lg p-8 text-center">
 				<div class="text-gray-400">
-					<div class="animate-pulse">Loading previous session...</div>
+					{#if isExtractingStems}
+						<div class="animate-pulse">
+							Extracting stems from VirtualDJ file...
+						</div>
+						<div class="mt-4 p-4 bg-blue-900/30 border border-blue-700/50 rounded-lg max-w-md mx-auto">
+							<p class="text-sm text-blue-300 mb-2">
+								<strong>Stem extraction in progress</strong>
+							</p>
+							{#if stemExtractionProgress}
+								<p class="text-xs text-blue-400">{stemExtractionProgress}</p>
+							{:else}
+								<p class="text-xs text-blue-400">This may take 30-60 seconds...</p>
+							{/if}
+						</div>
+					{:else}
+						<div class="animate-pulse">Loading previous session...</div>
+					{/if}
 				</div>
 			</div>
 		{:else if selectedMode === null}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { sessionStore } from '$lib/stores/sessionStore.svelte';
+	import { detectBpmWithStemFallback } from '$lib/utils/bpmDetection';
 	import type { BpmDetector } from '$lib/audio/BpmDetector';
 	import type { AudioEngine } from '$lib/audio/AudioEngine';
 	import type { PersistenceService } from '$lib/persistence/PersistenceService';
@@ -11,22 +12,20 @@
 	}
 	
 	let { audioEngine, bpmDetector, persistenceService }: Props = $props();
-	
+
 	async function recalculateBpmFromSong() {
 		if (!sessionStore.currentSession) return;
 		
-		const audioBuffer = audioEngine.getAudioBuffer();
-		if (audioBuffer) {
-			try {
-				sessionStore.setIsDetectingBpm(true);
-				const detectedBpm = await bpmDetector.detectBpm(audioBuffer);
-				await sessionStore.updateBPM(detectedBpm, false); // Reset manual flag
-			} catch (error) {
-				console.error('BPM recalculation failed:', error);
-				alert('Failed to recalculate BPM from song.');
-			} finally {
-				sessionStore.setIsDetectingBpm(false);
-			}
+		try {
+			sessionStore.setIsDetectingBpm(true);
+			const detectedBpm = await detectBpmWithStemFallback(audioEngine, bpmDetector);
+			await sessionStore.updateBPM(detectedBpm, false); // Reset manual flag
+		} catch (error) {
+			console.error('BPM recalculation failed:', error);
+			// Only show alert if all stems failed (error thrown means all attempts failed)
+			alert('Failed to recalculate BPM from song. No detectable beats found in any stem.');
+		} finally {
+			sessionStore.setIsDetectingBpm(false);
 		}
 	}
 	
@@ -125,34 +124,54 @@
 			<label class="text-sm font-medium text-gray-300 block">Stem Controls</label>
 			<div class="space-y-2">
 				{#each sessionStore.currentSession.stems as stem, index}
-					<button
-						class="w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 justify-between
-							{stem.enabled 
-								? 'bg-blue-600 hover:bg-blue-700 text-white' 
-								: 'bg-gray-700 hover:bg-gray-600 text-gray-300'}"
-						onclick={async () => {
-							const newEnabled = !stem.enabled;
-							audioEngine.setStemEnabled(index, newEnabled);
-							// Update session state
-							stem.enabled = newEnabled;
-							sessionStore.setCurrentSession({ ...sessionStore.currentSession });
-							// Persist the change
-							await persistenceService.updateStemEnabled(sessionStore.currentSession.id, stem.id, newEnabled);
-						}}
-					>
-						<div class="flex items-center gap-2 flex-1 min-w-0">
-							<div 
-								class="w-3 h-3 rounded-full flex-shrink-0"
-								style="background-color: {stem.color || '#3b82f6'}"
-							></div>
-							<span class="truncate" title={stem.filename}>
-								{stem.filename.replace(/\.[^/.]+$/, '')}
+					<div class="flex items-center gap-2">
+						<button
+							class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 justify-between
+								{stem.enabled 
+									? 'bg-blue-600 hover:bg-blue-700 text-white' 
+									: 'bg-gray-700 hover:bg-gray-600 text-gray-300'}"
+							onclick={async () => {
+								const newEnabled = !stem.enabled;
+								audioEngine.setStemEnabled(index, newEnabled);
+								// Update session state
+								stem.enabled = newEnabled;
+								sessionStore.setCurrentSession({ ...sessionStore.currentSession });
+								// Persist the change
+								await persistenceService.updateStemEnabled(sessionStore.currentSession.id, stem.id, newEnabled);
+							}}
+						>
+							<div class="flex items-center gap-2 flex-1 min-w-0">
+								<div 
+									class="w-3 h-3 rounded-full flex-shrink-0"
+									style="background-color: {stem.color || '#3b82f6'}"
+								></div>
+								<span class="truncate" title={stem.filename}>
+									{stem.filename.replace(/\.[^/.]+$/, '')}
+								</span>
+							</div>
+							<span class="text-xs opacity-75 flex-shrink-0">
+								{stem.enabled ? '✓' : '✗'}
 							</span>
-						</div>
-						<span class="text-xs opacity-75 flex-shrink-0">
-							{stem.enabled ? '✓' : '✗'}
-						</span>
-					</button>
+						</button>
+						{#if stem.downloadBlob}
+							<button
+								class="px-2 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition-colors flex-shrink-0"
+								title="Download {stem.filename}"
+								onclick={() => {
+									const url = URL.createObjectURL(stem.downloadBlob);
+									const link = document.createElement('a');
+									link.href = url;
+									link.download = stem.filename.endsWith('.mp3') ? stem.filename : `${stem.filename}.mp3`;
+									document.body.appendChild(link);
+									link.click();
+									document.body.removeChild(link);
+									URL.revokeObjectURL(url);
+								}}
+							>
+								⬇️
+							</button>
+						{/if}
+					</div>
 				{/each}
 			</div>
 		</div>
