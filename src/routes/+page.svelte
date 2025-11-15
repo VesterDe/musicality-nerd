@@ -1117,7 +1117,7 @@
 
 <main class="min-h-screen bg-gray-900 text-white">
 	<!-- Header -->
-	<header class="bg-gray-800 border-b border-gray-700 p-4">
+	<header class="bg-gray-800 border-b border-gray-700 px-4 py-2.5">
 		<div class="w-full">
 			{#if sessionStore.currentSession}
 				<div class="flex items-center justify-between">
@@ -1147,9 +1147,6 @@
 							</h2>
 						{/if}
 					</div>
-					<div class="text-sm text-gray-400">
-						Duration: {formatTime(sessionStore.duration)} • Beats: {sessionStore.currentSession.beats.length}
-					</div>
 				</div>
 			{:else}
 				<div class="flex items-center justify-between">
@@ -1168,21 +1165,22 @@
 		
 		{#if sessionStore.currentSession}
 			<!-- Transport Controls -->
-			<div class="bg-gray-800 rounded-lg p-4 sticky top-0 z-10 shadow-lg border-b border-gray-700 backdrop-blur-sm">
-				<div class="flex items-center space-x-4">
+			<div class="bg-gray-800 rounded-lg px-4 py-1.5 sticky top-0 z-10 shadow-lg border-b border-gray-700 backdrop-blur-sm">
+				<div class="flex items-center gap-2.5">
 					<button 
-						class="bg-blue-600 hover:bg-blue-700 p-3 rounded-full transition-colors"
+						class="bg-blue-600 hover:bg-blue-700 p-1 rounded-full transition-colors flex-shrink-0 w-7 h-7 flex items-center justify-center"
 						title={sessionStore.isPlaying ? 'Pause' : 'Play'}
 						aria-label={sessionStore.isPlaying ? 'Pause' : 'Play'}
 						onclick={togglePlayback}
 					>
-						{sessionStore.isPlaying ? '⏸️' : '▶️'}
+						<span class="text-xs leading-none">{sessionStore.isPlaying ? '⏸' : '▶'}</span>
 					</button>
 					
-					<div class="flex-1">
-						<div class="text-sm text-gray-400 mb-1">
-							{formatTime(sessionStore.currentTime)} / {formatTime(sessionStore.duration)}
-						</div>
+					<div class="text-xs text-gray-400 whitespace-nowrap flex-shrink-0 min-w-[90px]">
+						{formatTime(sessionStore.currentTime)} / {formatTime(sessionStore.duration)}
+					</div>
+					
+					<div class="flex-1 min-w-0">
 						<input 
 							type="range" 
 							value={sessionStore.currentTime}
@@ -1195,16 +1193,13 @@
 							min="0"
 							max={sessionStore.duration}
 							step="0.1"
-							class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+							class="w-full h-2.5 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
 						/>
 					</div>
 					
-					<div class="text-sm text-gray-400">
+					<div class="text-xs text-gray-400 whitespace-nowrap flex-shrink-0">
 						Beat: {sessionStore.currentBeatIndex >= 0 ? sessionStore.currentBeatIndex + 1 : '-'}
 					</div>
-					
-					
-
 				</div>
 			</div>
 
@@ -1343,8 +1338,8 @@
 
 	.slider::-webkit-slider-thumb {
 		appearance: none;
-		height: 16px;
-		width: 16px;
+		height: 12px;
+		width: 12px;
 		border-radius: 50%;
 		background: #3b82f6;
 		cursor: pointer;
@@ -1352,8 +1347,8 @@
 	}
 
 	.slider::-moz-range-thumb {
-		height: 16px;
-		width: 16px;
+		height: 12px;
+		width: 12px;
 		border-radius: 50%;
 		background: #3b82f6;
 		cursor: pointer;

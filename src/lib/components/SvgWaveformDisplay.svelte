@@ -75,10 +75,12 @@
 	let stemEnabled: boolean[] = $state([]);
 	let isStemMode = $state(false);
 	
-	// Virtualization state
-	let visibleChunkIndices = $state(new Set<number>());
-	let chunkObserver: IntersectionObserver | null = $state(null);
-	const BUFFER_CHUNKS = 2; // Number of chunks to render outside viewport
+	// Virtualization state - scroll-based
+	let scrollContainer: HTMLDivElement | undefined = $state();
+	let scrollTop = $state(0);
+	let viewportHeight = $state(0);
+	const OVERSCAN_CHUNKS = 2; // Number of chunks to render outside viewport
+	let rafId: number | null = null;
 
 	// Export service
 	let exportService = $state(new AudioExportService());
@@ -441,6 +443,38 @@
 		beatOffset,
 		chunkDuration
 	}));
+
+	// Virtualization: Calculate chunk height (waveform height + header height + spacing)
+	const chunkHeight = $derived(waveformConfig.height + 40 + 8); // 40px header + 8px spacing (space-y-2)
+
+	/**
+	 * Calculate virtual window: which chunks should be rendered based on scroll position
+	 * Returns: { startIndex, endIndex, offsetTop }
+	 */
+	function calculateVirtualWindow(
+		scrollTop: number,
+		viewportHeight: number,
+		itemHeight: number,
+		itemCount: number,
+		overscanCount: number
+	): { startIndex: number; endIndex: number; offsetTop: number } {
+		if (itemCount === 0) {
+			return { startIndex: 0, endIndex: 0, offsetTop: 0 };
+		}
+
+		// Calculate visible range
+		const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - overscanCount);
+		const endIndex = Math.min(
+			itemCount,
+			Math.ceil((scrollTop + viewportHeight) / itemHeight) + overscanCount
+		);
+
+		// Calculate offset for positioning visible items
+		const offsetTop = startIndex * itemHeight;
+
+		return { startIndex, endIndex, offsetTop };
+	}
+
 	// Compute all chunk metadata first (lightweight)
 	const chunkMetadata = $derived.by(() => {
 		if (!isInitialized || totalChunks === 0) return [];
@@ -461,6 +495,35 @@
 			});
 		}
 		return metadata;
+	});
+
+	// Calculate virtual window based on current scroll state
+	const virtualWindow = $derived.by(() => {
+		if (chunkMetadata.length === 0) {
+			return { startIndex: 0, endIndex: 0, offsetTop: 0 };
+		}
+		// If viewport height not yet measured, render first few chunks
+		if (viewportHeight === 0) {
+			return { startIndex: 0, endIndex: Math.min(5, chunkMetadata.length), offsetTop: 0 };
+		}
+		return calculateVirtualWindow(
+			scrollTop,
+			viewportHeight,
+			chunkHeight,
+			chunkMetadata.length,
+			OVERSCAN_CHUNKS
+		);
+	});
+
+	// Get visible chunk indices for rendering
+	const visibleChunkIndices = $derived.by(() => {
+		const indices = new Set<number>();
+		for (let i = virtualWindow.startIndex; i < virtualWindow.endIndex; i++) {
+			if (i >= 0 && i < chunkMetadata.length) {
+				indices.add(chunkMetadata[i].index);
+			}
+		}
+		return indices;
 	});
 	
 	// Heavy computation: generate waveform data for visible chunks only
@@ -726,53 +789,9 @@
 		});
 	});
 
-	// Helper function to check if chunk should be rendered
+	// Helper function to check if chunk should be rendered (uses virtual window)
 	function isChunkInRenderRange(chunkIndex: number): boolean {
-		if (visibleChunkIndices.size === 0) {
-			// Initially render first few chunks
-			return chunkIndex >= -1 && chunkIndex < 3;
-		}
-		
-		// Check if chunk is visible or in buffer zone
-		const minVisible = Math.min(...visibleChunkIndices);
-		const maxVisible = Math.max(...visibleChunkIndices);
-		
-		return chunkIndex >= minVisible - BUFFER_CHUNKS && 
-		       chunkIndex <= maxVisible + BUFFER_CHUNKS;
-	}
-	
-	// Setup Intersection Observer for viewport detection
-	function setupIntersectionObserver() {
-		if (typeof window === 'undefined' || !waveformContainer) return;
-		
-		// Clean up existing observer
-		if (chunkObserver) {
-			chunkObserver.disconnect();
-		}
-		
-		chunkObserver = new IntersectionObserver(
-			(entries) => {
-				const newVisibleIndices = new Set(visibleChunkIndices);
-				
-				entries.forEach(entry => {
-					const chunkElement = entry.target as HTMLElement;
-					const chunkIndex = parseInt(chunkElement.dataset.chunkIndex || '0');
-					
-					if (entry.isIntersecting) {
-						newVisibleIndices.add(chunkIndex);
-					} else {
-						newVisibleIndices.delete(chunkIndex);
-					}
-				});
-				
-				visibleChunkIndices = newVisibleIndices;
-			},
-			{
-				root: null,
-				rootMargin: '200px 0px', // 200px vertical buffer
-				threshold: 0
-			}
-		);
+		return visibleChunkIndices.has(chunkIndex);
 	}
 	
 	// Initialize audio data when AudioEngine changes
@@ -854,51 +873,61 @@
 		}
 	});
 
-	// Setup observer after component mounts
+	// Scroll handler with throttling (max 60Hz)
+	function handleScroll() {
+		if (!scrollContainer) return;
+		
+		scrollTop = scrollContainer.scrollTop;
+		viewportHeight = scrollContainer.clientHeight;
+	}
+
+	// Throttled scroll handler using requestAnimationFrame
+	function throttledScrollHandler() {
+		if (rafId !== null) return; // Already scheduled
+		
+		rafId = requestAnimationFrame(() => {
+			handleScroll();
+			rafId = null;
+		});
+	}
+
+	// Initialize scroll tracking after component mounts
 	onMount(() => {
-		// Wait for initial render
+		// Wait for initial render to get container dimensions
 		const initTimer = setTimeout(() => {
-			if (waveformContainer) {
-				setupIntersectionObserver();
+			if (scrollContainer) {
+				// Initialize viewport dimensions
+				scrollTop = scrollContainer.scrollTop;
+				viewportHeight = scrollContainer.clientHeight;
 				
-				// Use MutationObserver to watch for new chunk elements
-				const mutationObserver = new MutationObserver(() => {
-					if (chunkObserver && waveformContainer) {
-						const chunkElements = waveformContainer.querySelectorAll('[data-chunk-index]:not([data-observed])');
-						chunkElements.forEach(element => {
-							chunkObserver!.observe(element);
-							element.setAttribute('data-observed', 'true');
-						});
+				// Attach scroll listener with throttling
+				scrollContainer.addEventListener('scroll', throttledScrollHandler, { passive: true });
+				
+				// Also handle resize to update viewport height
+				const resizeHandler = () => {
+					if (scrollContainer) {
+						viewportHeight = scrollContainer.clientHeight;
 					}
-				});
+				};
+				window.addEventListener('resize', resizeHandler);
 				
-				// Start observing for DOM changes
-				mutationObserver.observe(waveformContainer, {
-					childList: true,
-					subtree: true
-				});
-				
-				// Observe initial elements
-				if (chunkObserver) {
-					const chunkElements = waveformContainer.querySelectorAll('[data-chunk-index]');
-					chunkElements.forEach(element => {
-						chunkObserver!.observe(element);
-						element.setAttribute('data-observed', 'true');
-					});
-				}
-				
-				// Cleanup function
 				return () => {
-					clearTimeout(initTimer);
-					mutationObserver.disconnect();
-					chunkObserver?.disconnect();
+					scrollContainer?.removeEventListener('scroll', throttledScrollHandler);
+					window.removeEventListener('resize', resizeHandler);
+					if (rafId !== null) {
+						cancelAnimationFrame(rafId);
+						rafId = null;
+					}
 				};
 			}
 		}, 100);
 		
 		return () => {
 			clearTimeout(initTimer);
-			chunkObserver?.disconnect();
+			if (rafId !== null) {
+				cancelAnimationFrame(rafId);
+				rafId = null;
+			}
 			playheadAnimator?.dispose();
 		};
 	});
@@ -906,6 +935,13 @@
 	// Update beat grouping when beatsPerLine changes
 	$effect(() => {
 		beatGrouping = beatsPerLine;
+	});
+
+	// Update viewport height when scroll container becomes available
+	$effect(() => {
+		if (scrollContainer) {
+			viewportHeight = scrollContainer.clientHeight;
+		}
 	});
 
 
@@ -1391,7 +1427,7 @@
 
 <div class="flex flex-col space-y-4">
 	<!-- Info Bar -->
-	<div class="bg-gray-800 rounded-lg p-4">
+	<!-- <div class="bg-gray-800 rounded-lg p-4">
 		<div class="mt-2 text-sm text-gray-400">
 			<span>Duration: {effectiveDuration.toFixed(1)}s</span>
 			<span class="mx-2">•</span>
@@ -1405,69 +1441,81 @@
       <span class="mx-2">•</span>
       <span>Current: {Math.floor(currentTime / chunkDuration) + 1} / {totalChunks}</span>
 		</div>
-	</div>
+	</div> -->
 
-	<!-- Waveform Container -->
-	<div bind:this={waveformContainer} class="relative">
-		<div class="space-y-2">
-			{#each chunkData as chunk (chunk.index)}
-				{#if chunk.shouldRenderContent}
-					<!-- Render full chunk with content -->
-					<SingleLineWaveformDisplay
-						chunkIndex={chunk.index}
-						bounds={chunk.bounds}
-						isSpecialChunk={chunk.isSpecialChunk}
-						waveformBars={chunk.waveformBars}
-						waveformBarsPerStem={chunk.waveformBarsPerStem}
-						stemColors={isStemMode ? stemColors : undefined}
-						stemEnabled={isStemMode ? stemEnabled : undefined}
-						beatLines={chunk.beatLines}
-						headerInfo={chunk.headerInfo}
-						startTime={chunk.startTime}
-						endTime={chunk.endTime}
-						annotations={chunk.annotations}
-						placeholderAnnotation={chunk.placeholderAnnotation}
-						isLooping={chunk.isLooping}
-						isActiveChunk={playheadInfo?.chunkIndex === chunk.index}
-						activeBarIndex={playheadInfo?.chunkIndex === chunk.index && activeBarInfo ? activeBarInfo.barIndex : -1}
-						activeBeatLineIndices={playheadInfo?.chunkIndex === chunk.index ? activeBeatLineIndices : undefined}
-						playheadVisible={playheadInfo?.chunkIndex === chunk.index}
-						playheadX={playheadInfo?.chunkIndex === chunk.index ? playheadInfo.x : 0}
-						{waveformConfig}
-						{chunkDuration}
-						{beatOffset}
-						exportingChunk={exportingChunks.has(chunk.index)}
-						onWaveformMouseDown={handleWaveformMouseDown}
-						onWaveformTouchStart={handleWaveformTouchStart}
-						onChunkExport={handleChunkExport}
-						onToggleChunkLoop={toggleChunkLoop}
-						onEditAnnotation={handleEditAnnotation}
-						onDeleteAnnotation={handleDeleteAnnotation}
-						onMoveAnnotation={handleMoveAnnotation}
-						onDuplicateAnnotation={handleDuplicateAnnotation}
-						onGroupExport={handleGroupExport}
-						showGroupExportButton={loopingChunkIndices.size > 1 && chunk.isLooping && Array.from(loopingChunkIndices).sort((a, b) => a - b)[0] === chunk.index}
-						loopingChunkCount={loopingChunkIndices.size}
-						registerPlayheadLayer={createRegisterCallback(chunk.index)}
-						unregisterPlayheadLayer={createUnregisterCallback(chunk.index)}
-					/>
-				{:else}
-					<!-- Render placeholder for non-visible chunk -->
-					<div 
-						class="relative mb-0 bg-gray-900 rounded-lg overflow-hidden" 
-						data-chunk-index={chunk.index}
-						style="height: {waveformConfig.height + 40}px"
-					>
-						<!-- Minimal header -->
-						<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between">
-							<div>{chunk.headerInfo}</div>
-							<div class="text-xs text-gray-500">Loading...</div>
-						</div>
-						<!-- Empty space for waveform -->
-						<div class="bg-gray-900" style="height: {waveformConfig.height}px"></div>
+	<!-- Waveform Container with Virtualization -->
+	<div bind:this={waveformContainer} class="relative w-full">
+		<div 
+			bind:this={scrollContainer}
+			class="overflow-y-auto w-full"
+			style="height: 600px; max-height: calc(100vh - 300px);"
+		>
+			<!-- Spacer for total height to maintain scrollbar -->
+			<div style="height: {chunkMetadata.length * chunkHeight}px; position: relative;">
+				<!-- Visible chunks positioned with transform -->
+				<div style="position: absolute; top: {virtualWindow.offsetTop}px; left: 0; right: 0;">
+					<div class="space-y-2">
+						{#each chunkData.slice(virtualWindow.startIndex, virtualWindow.endIndex) as chunk (chunk.index)}
+							{#if chunk.shouldRenderContent}
+								<!-- Render full chunk with content -->
+								<SingleLineWaveformDisplay
+									chunkIndex={chunk.index}
+									bounds={chunk.bounds}
+									isSpecialChunk={chunk.isSpecialChunk}
+									waveformBars={chunk.waveformBars}
+									waveformBarsPerStem={chunk.waveformBarsPerStem}
+									stemColors={isStemMode ? stemColors : undefined}
+									stemEnabled={isStemMode ? stemEnabled : undefined}
+									beatLines={chunk.beatLines}
+									headerInfo={chunk.headerInfo}
+									startTime={chunk.startTime}
+									endTime={chunk.endTime}
+									annotations={chunk.annotations}
+									placeholderAnnotation={chunk.placeholderAnnotation}
+									isLooping={chunk.isLooping}
+									isActiveChunk={playheadInfo?.chunkIndex === chunk.index}
+									activeBarIndex={playheadInfo?.chunkIndex === chunk.index && activeBarInfo ? activeBarInfo.barIndex : -1}
+									activeBeatLineIndices={playheadInfo?.chunkIndex === chunk.index ? activeBeatLineIndices : undefined}
+									playheadVisible={playheadInfo?.chunkIndex === chunk.index}
+									playheadX={playheadInfo?.chunkIndex === chunk.index ? playheadInfo.x : 0}
+									{waveformConfig}
+									{chunkDuration}
+									{beatOffset}
+									exportingChunk={exportingChunks.has(chunk.index)}
+									onWaveformMouseDown={handleWaveformMouseDown}
+									onWaveformTouchStart={handleWaveformTouchStart}
+									onChunkExport={handleChunkExport}
+									onToggleChunkLoop={toggleChunkLoop}
+									onEditAnnotation={handleEditAnnotation}
+									onDeleteAnnotation={handleDeleteAnnotation}
+									onMoveAnnotation={handleMoveAnnotation}
+									onDuplicateAnnotation={handleDuplicateAnnotation}
+									onGroupExport={handleGroupExport}
+									showGroupExportButton={loopingChunkIndices.size > 1 && chunk.isLooping && Array.from(loopingChunkIndices).sort((a, b) => a - b)[0] === chunk.index}
+									loopingChunkCount={loopingChunkIndices.size}
+									registerPlayheadLayer={createRegisterCallback(chunk.index)}
+									unregisterPlayheadLayer={createUnregisterCallback(chunk.index)}
+								/>
+							{:else}
+								<!-- Render placeholder for non-visible chunk (shouldn't happen with virtualization, but kept for safety) -->
+								<div 
+									class="relative mb-0 bg-gray-900 rounded-lg overflow-hidden" 
+									data-chunk-index={chunk.index}
+									style="height: {waveformConfig.height + 40}px"
+								>
+									<!-- Minimal header -->
+									<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between">
+										<div>{chunk.headerInfo}</div>
+										<div class="text-xs text-gray-500">Loading...</div>
+									</div>
+									<!-- Empty space for waveform -->
+									<div class="bg-gray-900" style="height: {waveformConfig.height}px"></div>
+								</div>
+							{/if}
+						{/each}
 					</div>
-				{/if}
-			{/each}
+				</div>
+			</div>
 		</div>
 	</div>
 </div>
