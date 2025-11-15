@@ -111,20 +111,18 @@
 	
 	// Queue for registrations that happen before animator exists
 	const pendingRegistrations = new Map<number, {
-		line: HTMLElement | null;
+		line: SVGLineElement | null;
 		topTriangle: HTMLElement | null;
 		bottomTriangle: HTMLElement | null;
 	}>();
 	
 	// Stable callback functions for playhead layer registration
 	function createRegisterCallback(chunkIndex: number) {
-		return (line: HTMLElement | null, topTriangle: HTMLElement | null, bottomTriangle: HTMLElement | null) => {
-			console.debug('[Playhead] createRegisterCallback called', { chunkIndex, animatorExists: !!playheadAnimator });
+		return (line: SVGLineElement | null, topTriangle: HTMLElement | null, bottomTriangle: HTMLElement | null) => {
 			if (playheadAnimator) {
 				playheadAnimator.registerChunkLayer(chunkIndex, line, topTriangle, bottomTriangle);
 			} else {
 				// Queue the registration for when animator is ready
-				console.debug('[Playhead] Queuing registration for later', { chunkIndex });
 				pendingRegistrations.set(chunkIndex, { line, topTriangle, bottomTriangle });
 			}
 		};
@@ -248,7 +246,7 @@
 		private getCurrentTime: () => number;
 		private computePosition: (time: number) => { chunkIndex: number; chunkContainerIndex: number; x: number } | null;
 		private chunkLayers: Map<number, {
-			line: HTMLElement | null;
+			line: SVGLineElement | null;
 			topTriangle: HTMLElement | null;
 			bottomTriangle: HTMLElement | null;
 		}> = new Map();
@@ -266,17 +264,11 @@
 		 */
 		registerChunkLayer(
 			chunkIndex: number,
-			line: HTMLElement | null,
+			line: SVGLineElement | null,
 			topTriangle: HTMLElement | null,
 			bottomTriangle: HTMLElement | null
 		): void {
 			this.chunkLayers.set(chunkIndex, { line, topTriangle, bottomTriangle });
-			console.debug('[Playhead] register layer', {
-				chunkIndex,
-				lineExists: !!line,
-				topExists: !!topTriangle,
-				bottomExists: !!bottomTriangle
-			});
 			// Immediately sync position - this will show playhead on the correct chunk
 			// Sync both immediately and in next frame to ensure it works
 			const currentTime = this.getCurrentTime();
@@ -317,9 +309,6 @@
 			// Show and position playhead for the active chunk
 			const activeLayer = this.chunkLayers.get(pos.chunkIndex);
 			if (!activeLayer) {
-				console.warn('[Playhead] no active layer for chunk', pos.chunkIndex, {
-					availableChunks: Array.from(this.chunkLayers.keys()).sort((a, b) => a - b)
-				});
 				return;
 			}
 
@@ -330,8 +319,6 @@
 				activeLayer.line.setAttribute('x1', String(roundedX));
 				activeLayer.line.setAttribute('x2', String(roundedX));
 				activeLayer.line.style.display = 'block';
-			} else {
-				console.warn('[Playhead] missing line element for chunk', pos.chunkIndex);
 			}
 			
 			if (activeLayer.topTriangle) {
@@ -829,7 +816,6 @@
 			playheadAnimator = animator;
 			
 			// Apply all pending registrations that happened before animator was ready
-			console.debug('[Playhead] Applying pending registrations', { count: pendingRegistrations.size });
 			for (const [chunkIndex, { line, topTriangle, bottomTriangle }] of pendingRegistrations.entries()) {
 				animator.registerChunkLayer(chunkIndex, line, topTriangle, bottomTriangle);
 			}

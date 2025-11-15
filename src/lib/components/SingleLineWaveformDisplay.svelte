@@ -39,7 +39,7 @@
 		onGroupExport?: () => void;
 		showGroupExportButton?: boolean;
 		loopingChunkCount?: number;
-		registerPlayheadLayer?: (line: HTMLElement | null, topTriangle: HTMLElement | null, bottomTriangle: HTMLElement | null) => void;
+		registerPlayheadLayer?: (line: SVGLineElement | null, topTriangle: HTMLElement | null, bottomTriangle: HTMLElement | null) => void;
 		unregisterPlayheadLayer?: () => void;
 	}
 
@@ -103,20 +103,14 @@
 			// Use untrack to prevent tracking function references
 			untrack(() => {
 				if (registerPlayheadLayer) {
-					console.debug('[Playhead] SingleLineWaveformDisplay registering', { chunkIndex, line: !!line, top: !!top, bottom: !!bottom });
 					registerPlayheadLayer(line, top, bottom);
-				} else {
-					console.warn('[Playhead] registerPlayheadLayer callback not available', { chunkIndex });
 				}
 			});
-		} else {
-			console.debug('[Playhead] SingleLineWaveformDisplay refs not ready', { chunkIndex, line: !!playheadLine, top: !!playheadTopTriangle, bottom: !!playheadBottomTriangle });
 		}
 		
 		return () => {
 			untrack(() => {
 				if (unregisterPlayheadLayer) {
-					console.debug('[Playhead] SingleLineWaveformDisplay unregistering', { chunkIndex });
 					unregisterPlayheadLayer();
 				}
 			});
