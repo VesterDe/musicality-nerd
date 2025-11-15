@@ -342,8 +342,13 @@
 			activeLayer.ctx.fill();
 			
 			// Draw bottom triangle (pointing up) near the bottom of the canvas
-			// Position it 10px from the bottom to match original positioning
-			const bottomTriangleY = logicalHeight - triangleSize - 10;
+			// Original positioning: bottomY = topY + waveformConfig.height - 10, where topY = 42 (40px header + 2px)
+			// Relative to canvas (which starts at 40px): bottomY - 40 = waveformConfig.height - 8
+			// The triangle base should be at logicalHeight - 8
+			// bottomTriangleY is the Y coordinate of the triangle's point (top), base is at bottomTriangleY + triangleSize
+			// Currently it's 1 height (triangleSize) too far up, so move it down by triangleSize
+			// Start from logicalHeight - 8 - triangleSize and move down by triangleSize
+			const bottomTriangleY = logicalHeight - 8 - triangleSize + triangleSize;
 			activeLayer.ctx.beginPath();
 			activeLayer.ctx.moveTo(triangleX, bottomTriangleY + triangleSize);
 			activeLayer.ctx.lineTo(triangleX + triangleSize, bottomTriangleY + triangleSize);

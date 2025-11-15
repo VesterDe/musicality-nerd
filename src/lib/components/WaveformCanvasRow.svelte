@@ -257,7 +257,7 @@
 	}
 </script>
 
-<div class="relative mb-0 bg-gray-900 rounded-lg overflow-hidden {isActiveChunk ? 'current-chunk' : ''}" data-chunk-index={chunkIndex}>
+<div class="relative mb-0 bg-gray-900 overflow-hidden {isActiveChunk ? 'current-chunk' : ''}" data-chunk-index={chunkIndex}>
 	<!-- Chunk Header -->
 	<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between">
 		<div>{headerInfo}</div>
