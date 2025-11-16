@@ -727,7 +727,7 @@ export class AudioEngine {
 					if (currentSegmentIndex === -1) {
 						// Prevent rapid consecutive jumps
 						const now = Date.now();
-						if (now - this.lastJumpTime < 100) { // 100ms minimum between jumps
+						if (now - this.lastJumpTime < 250) { // 250ms minimum between jumps
 							// Skip this jump, let audio settle
 							this.onTimeUpdate?.(currentTime);
 							requestAnimationFrame(updateTime);
