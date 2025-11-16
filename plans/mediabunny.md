@@ -1,0 +1,1 @@
+Use it to mp3ify stems as they are imported, to make it all smaller on the indexedb and when downloading.
