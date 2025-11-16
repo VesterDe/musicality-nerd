@@ -147,6 +147,151 @@ export class AudioExportService {
 	}
 
 	/**
+	 * Export a chunk from multiple stems, mixing only enabled stems
+	 * Uses OfflineAudioContext to combine stems and apply BPM scaling
+	 */
+	async exportStemsChunkCombined(
+		stemBuffers: AudioBuffer[],
+		enabledFlags: boolean[],
+		startTime: number,
+		endTime: number,
+		filename: string,
+		options?: { playbackRate?: number }
+	): Promise<void> {
+		// Validation
+		if (stemBuffers.length === 0) {
+			throw new Error('No stem buffers provided');
+		}
+
+		if (enabledFlags.length !== stemBuffers.length) {
+			throw new Error('Enabled flags length must match stem buffers length');
+		}
+
+		if (endTime <= startTime) {
+			throw new Error('Invalid time range for export');
+		}
+
+		// Check if any stems are enabled
+		const hasEnabledStems = enabledFlags.some(enabled => enabled);
+		if (!hasEnabledStems) {
+			throw new Error('No stems are enabled for export');
+		}
+
+		// Use first stem's properties as canonical (all stems should have same sample rate)
+		const sampleRate = stemBuffers[0].sampleRate;
+		const numberOfChannels = stemBuffers[0].numberOfChannels;
+
+		// Calculate chunk duration
+		const chunkDuration = endTime - startTime;
+		const chunkLength = Math.ceil(chunkDuration * sampleRate);
+
+		if (chunkLength <= 0) {
+			throw new Error('Invalid chunk duration');
+		}
+
+		// Create OfflineAudioContext for mixing
+		const offline = new OfflineAudioContext(numberOfChannels, chunkLength, sampleRate);
+
+		// Mix all enabled stems
+		for (let i = 0; i < stemBuffers.length; i++) {
+			if (!enabledFlags[i]) {
+				continue; // Skip disabled stems
+			}
+
+			const stemBuffer = stemBuffers[i];
+			
+			// Validate stem buffer compatibility
+			if (stemBuffer.sampleRate !== sampleRate) {
+				console.warn(`Stem ${i} has different sample rate (${stemBuffer.sampleRate} vs ${sampleRate}), may cause issues`);
+			}
+
+			// Create source node for this stem
+			const source = offline.createBufferSource();
+			source.buffer = stemBuffer;
+			
+			// Connect directly to destination (signals will automatically sum)
+			// OfflineAudioContext will handle resampling if needed
+			source.connect(offline.destination);
+			
+			// Start playback at the chunk start time
+			// Duration is automatically limited by the OfflineAudioContext length
+			try {
+				source.start(0, startTime);
+			} catch (error) {
+				console.warn(`Failed to start stem ${i} at offset ${startTime}:`, error);
+				// Continue with other stems
+			}
+		}
+
+		// Render the mixed audio
+		let mixedBuffer: AudioBuffer;
+		try {
+			mixedBuffer = await offline.startRendering();
+		} catch (error) {
+			throw new Error(`Failed to render mixed stems: ${error instanceof Error ? error.message : String(error)}`);
+		}
+
+		// Check for clipping and normalize if needed
+		const maxSample = this.findMaxSample(mixedBuffer);
+		if (maxSample > 1.0) {
+			console.warn(`Mixed audio clips (max sample: ${maxSample.toFixed(3)}), normalizing...`);
+			mixedBuffer = this.normalizeBuffer(mixedBuffer, maxSample);
+		}
+
+		// Apply playback rate scaling if needed
+		const playbackRate = options?.playbackRate ?? 1;
+		const outputBuffer = playbackRate !== 1
+			? await this.timeScaleBuffer(mixedBuffer, playbackRate)
+			: mixedBuffer;
+
+		// Convert to WAV and download
+		await this.downloadAudioBuffer(outputBuffer, filename);
+	}
+
+	/**
+	 * Find the maximum absolute sample value in an AudioBuffer
+	 */
+	private findMaxSample(buffer: AudioBuffer): number {
+		let max = 0;
+		for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+			const channelData = buffer.getChannelData(channel);
+			for (let i = 0; i < channelData.length; i++) {
+				const abs = Math.abs(channelData[i]);
+				if (abs > max) {
+					max = abs;
+				}
+			}
+		}
+		return max;
+	}
+
+	/**
+	 * Normalize an AudioBuffer to prevent clipping
+	 */
+	private normalizeBuffer(buffer: AudioBuffer, maxSample: number): AudioBuffer {
+		if (maxSample <= 0 || maxSample <= 1.0) {
+			return buffer; // No normalization needed
+		}
+
+		const scale = 0.99 / maxSample; // Scale to 99% to leave headroom
+		const normalized = new AudioBuffer({
+			length: buffer.length,
+			numberOfChannels: buffer.numberOfChannels,
+			sampleRate: buffer.sampleRate
+		});
+
+		for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+			const sourceData = buffer.getChannelData(channel);
+			const destData = normalized.getChannelData(channel);
+			for (let i = 0; i < sourceData.length; i++) {
+				destData[i] = sourceData[i] * scale;
+			}
+		}
+
+		return normalized;
+	}
+
+	/**
 	 * Convert AudioBuffer to WAV and trigger download
 	 * Note: This creates a WAV file since MP3 encoding would require additional dependencies
 	 */

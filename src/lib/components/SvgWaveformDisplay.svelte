@@ -1367,12 +1367,6 @@
 	}
 
 	async function handleChunkExport(chunkIndex: number, startTime: number, endTime: number) {
-		const audioBuffer = audioEngine.getAudioBuffer();
-		if (!audioBuffer) {
-			alert('No audio data available for export');
-			return;
-		}
-
 		try {
 			exportingChunks.add(chunkIndex);
 			
@@ -1381,10 +1375,51 @@
 			const exportFilename = `${filename}_${chunkName}.wav`;
 			// Apply current BPM scaling (pitch shifts) using playbackRate
 			const playbackRate = targetBPM / bpm;
-			await exportService.exportChunk(audioBuffer, startTime, endTime, exportFilename, { playbackRate });
+
+			// Check if we're in stem mode
+			if (audioEngine.isInStemMode) {
+        debugger
+				// Stem mode: mix all enabled stems
+				const stemBuffers = audioEngine.getStemBuffers();
+				if (!stemBuffers || stemBuffers.length === 0) {
+					alert('No stem buffers available for export');
+					return;
+				}
+
+				// Get enabled state for each stem
+				// Use stemEnabled array if available and matches length, otherwise default to all enabled
+				const enabledFlags = stemEnabled.length === stemBuffers.length 
+					? [...stemEnabled] 
+					: stemBuffers.map(() => true);
+
+				// Check if any stems are enabled
+				if (!enabledFlags.some(enabled => enabled)) {
+					alert('No stems are enabled. Please enable at least one stem to export.');
+					return;
+				}
+
+				await exportService.exportStemsChunkCombined(
+					stemBuffers,
+					enabledFlags,
+					startTime,
+					endTime,
+					exportFilename,
+					{ playbackRate }
+				);
+			} else {
+				// Single track mode: use existing behavior
+				const audioBuffer = audioEngine.getAudioBuffer();
+				if (!audioBuffer) {
+					alert('No audio data available for export');
+					return;
+				}
+
+				await exportService.exportChunk(audioBuffer, startTime, endTime, exportFilename, { playbackRate });
+			}
 		} catch (error) {
 			console.error('Failed to export chunk:', error);
-			alert('Failed to export chunk. Please try again.');
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+			alert(`Failed to export chunk: ${errorMessage}`);
 		} finally {
 			exportingChunks.delete(chunkIndex);
 		}

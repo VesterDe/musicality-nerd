@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { sessionStore } from '$lib/stores/sessionStore.svelte';
 	import { detectBpmWithStemFallback } from '$lib/utils/bpmDetection';
+	import { AudioExportService } from '$lib/audio/AudioExportService';
 	import type { BpmDetector } from '$lib/audio/BpmDetector';
 	import type { AudioEngine } from '$lib/audio/AudioEngine';
 	import type { PersistenceService } from '$lib/persistence/PersistenceService';
@@ -12,6 +13,9 @@
 	}
 	
 	let { audioEngine, bpmDetector, persistenceService }: Props = $props();
+	
+	// Export service for BPM-aware stem downloads
+	let exportService = $state(new AudioExportService());
 
 	async function recalculateBpmFromSong() {
 		if (!sessionStore.currentSession) return;
@@ -39,6 +43,59 @@
 	
 	function resetTargetBPM() {
 		sessionStore.updateTargetBPM(sessionStore.bpm);
+	}
+	
+	async function handleStemDownload(index: number) {
+		// Verify we're in stem mode
+		if (!audioEngine.isInStemMode) {
+			alert('Stem mode is not active');
+			return;
+		}
+		
+		// Get stem buffers
+		const stemBuffers = audioEngine.getStemBuffers();
+		if (!stemBuffers || index < 0 || index >= stemBuffers.length) {
+			alert('Stem not available for download');
+			return;
+		}
+		
+		const stemBuffer = stemBuffers[index];
+		if (!stemBuffer) {
+			alert('Stem buffer not available');
+			return;
+		}
+		
+		// Get stem info from session
+		if (!sessionStore.currentSession?.stems || index >= sessionStore.currentSession.stems.length) {
+			alert('Stem information not available');
+			return;
+		}
+		
+		const stem = sessionStore.currentSession.stems[index];
+		
+		try {
+			// Generate filename from stem filename, changing extension to .wav
+			const baseFilename = stem.filename.replace(/\.[^/.]+$/, '');
+			const exportFilename = `${baseFilename}.wav`;
+			
+			// Compute playbackRate from BPM settings (same logic as chunk exports)
+			// Guard against division by zero
+			const playbackRate = sessionStore.bpm > 0 
+				? sessionStore.targetBPM / sessionStore.bpm 
+				: 1;
+			
+			// Export the entire stem with BPM adjustment
+			await exportService.exportChunk(
+				stemBuffer,
+				0,
+				stemBuffer.duration,
+				exportFilename,
+				{ playbackRate }
+			);
+		} catch (error) {
+			console.error('Failed to export stem:', error);
+			alert('Failed to export stem. Please try again.');
+		}
 	}
 </script>
 
@@ -153,24 +210,13 @@
 								{stem.enabled ? '✓' : '✗'}
 							</span>
 						</button>
-						{#if stem.downloadBlob}
-							<button
-								class="px-2 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition-colors flex-shrink-0"
-								title="Download {stem.filename}"
-								onclick={() => {
-									const url = URL.createObjectURL(stem.downloadBlob);
-									const link = document.createElement('a');
-									link.href = url;
-									link.download = stem.filename.endsWith('.mp3') ? stem.filename : `${stem.filename}.mp3`;
-									document.body.appendChild(link);
-									link.click();
-									document.body.removeChild(link);
-									URL.revokeObjectURL(url);
-								}}
-							>
-								⬇️
-							</button>
-						{/if}
+						<button
+							class="px-2 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition-colors flex-shrink-0"
+							title="Download {stem.filename} (BPM-adjusted)"
+							onclick={() => handleStemDownload(index)}
+						>
+							⬇️
+						</button>
 					</div>
 				{/each}
 			</div>

@@ -9,7 +9,7 @@
 	import SongList from '$lib/components/SongList.svelte';
 	import StemList from '$lib/components/StemList.svelte';
 	import Sidebar from '$lib/components/sidebar/Sidebar.svelte';
-	import { ffmpegClient } from '$lib/utils/ffmpegClient';
+	import { stemExtractor } from '$lib/utils/stemExtractor';
 	import { detectBpmWithStemFallback } from '$lib/utils/bpmDetection';
 	import type { TrackSession, Annotation } from '$lib/types';
 	let { data } = $props();
@@ -288,10 +288,10 @@
 		try {
 			sessionStore.setIsSessionInitializing(true);
 			isExtractingStems = true;
-			stemExtractionProgress = 'Loading ffmpeg engine...';
+			stemExtractionProgress = 'Initializing conversion engine...';
 
-			// Extract stems using ffmpeg.wasm with progress updates
-			const stemFiles = await ffmpegClient.extractVirtualDjStems(file, (message) => {
+			// Extract stems using Mediabunny with progress updates
+			const stemFiles = await stemExtractor.extractVirtualDjStems(file, (message) => {
 				stemExtractionProgress = message;
 			});
 			

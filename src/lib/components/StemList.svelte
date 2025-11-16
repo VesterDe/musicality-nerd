@@ -138,7 +138,7 @@
 			<div class="mt-4 p-3 bg-amber-900/30 border border-amber-700/50 rounded-lg">
 				<p class="text-xs text-amber-300">
 					<strong>Note:</strong> Extracting stems from .vdjstems files may take 30-60 seconds. 
-					The ffmpeg engine loads on-demand and processes entirely in your browser.
+					Processing happens entirely in your browser.
 				</p>
 			</div>
 			<input 

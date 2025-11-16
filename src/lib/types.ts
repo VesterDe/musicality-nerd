@@ -24,7 +24,7 @@ export interface Stem {
 	mp3Blob: ArrayBuffer;
 	enabled: boolean; // Whether this stem is currently playing
 	color?: string; // Optional color for visualization
-	downloadBlob?: Blob; // Optional blob for downloading (preserved from ffmpeg extraction)
+	downloadBlob?: Blob; // Optional blob for downloading (preserved from stem extraction)
 }
 
 export interface TrackSession {
