@@ -49,6 +49,7 @@
 		loopingChunkCount?: number;
 		registerPlayheadLayer?: (canvas: HTMLCanvasElement | null) => void;
 		unregisterPlayheadLayer?: () => void;
+		isAnnotationMode?: boolean;
 	}
 
 	let {
@@ -85,7 +86,8 @@
 		showGroupExportButton = false,
 		loopingChunkCount = 0,
 		registerPlayheadLayer,
-		unregisterPlayheadLayer
+		unregisterPlayheadLayer,
+		isAnnotationMode = false
 	}: Props = $props();
 
 	// Canvas reference
@@ -259,7 +261,7 @@
 
 <div class="relative mb-0 bg-gray-900 overflow-hidden {isActiveChunk ? 'current-chunk' : ''}" data-chunk-index={chunkIndex}>
 	<!-- Chunk Header -->
-	<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between">
+	<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between" style="touch-action: pan-y;">
 		<div>{headerInfo}</div>
 		<div class="flex items-center space-x-2">
 			<!-- Show group download button only on the first looping chunk -->
@@ -293,7 +295,7 @@
 		<canvas
 			bind:this={canvasElement}
 			class="block cursor-crosshair"
-			style:touch-action="none"
+			style:touch-action={isAnnotationMode ? "none" : "pan-y"}
 			onmousedown={handleCanvasMouseDown}
 			ontouchstart={handleCanvasTouchStart}
 		></canvas>

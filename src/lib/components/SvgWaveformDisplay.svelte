@@ -102,6 +102,13 @@
 	let dragCurrentChunk = $state(-1);
 	let lastPointerClientX = $state(0);
 	let lastPointerClientY = $state(0);
+	
+	// Touch interaction state for scroll detection
+	let touchStartX = $state(0);
+	let touchStartY = $state(0);
+	let touchStartTime = $state(0);
+	let isTouchDrag = $state(false);
+	const TOUCH_MOVE_THRESHOLD = 10; // pixels - if touch moves more than this, consider it a scroll
 
 	// Placeholder annotation state
 	let showPlaceholder = $state(false);
@@ -464,7 +471,7 @@
 	
 	const waveformConfig = $derived.by((): WaveformConfig => ({
 		width: containerWidth,
-		height: 120,
+		height: 96,
 		sampleRate: audioSampleRate,
 		audioDuration,
 		beatOffset,
@@ -1153,14 +1160,24 @@
 		// Convert pixel position to time (in milliseconds)
 		const clickedTimeMs = pixelToTime(x, bounds, waveformConfig.width);
 		
-		// If annotation mode is off, seek to clicked position and return early
+		// Store touch start position and time for scroll detection
+		touchStartX = touch.clientX;
+		touchStartY = touch.clientY;
+		touchStartTime = Date.now();
+		isTouchDrag = false;
+		
+		// If annotation mode is off, track touch but don't seek yet (wait for touchend)
 		if (!isAnnotationMode) {
-			if (onSeek) {
-				// Convert milliseconds to seconds for seek
-				const clickedTimeSeconds = clickedTimeMs / 1000;
-				onSeek(clickedTimeSeconds);
-			}
-			event.preventDefault();
+			// Store the seek target for potential tap
+			dragStartTimeMs = clickedTimeMs;
+			dragStartChunk = chunkIndex;
+			
+			// Add global touch handlers to detect if this is a scroll or tap
+			document.addEventListener('touchmove', handleNonAnnotationTouchMove, { passive: true });
+			document.addEventListener('touchend', handleNonAnnotationTouchEnd, { passive: true });
+			document.addEventListener('touchcancel', handleNonAnnotationTouchEnd, { passive: true });
+			
+			// Don't preventDefault - allow scrolling
 			return;
 		}
 		
@@ -1185,6 +1202,36 @@
 		document.addEventListener('touchcancel', handleGlobalTouchEnd);
 
 		event.preventDefault();
+	}
+	
+	function handleNonAnnotationTouchMove(event: TouchEvent) {
+		if (event.touches.length === 0) return;
+		const touch = event.touches[0];
+		
+		// Check if touch has moved significantly (indicating a scroll)
+		const deltaX = Math.abs(touch.clientX - touchStartX);
+		const deltaY = Math.abs(touch.clientY - touchStartY);
+		
+		// If moved more than threshold, consider it a scroll
+		if (deltaX > TOUCH_MOVE_THRESHOLD || deltaY > TOUCH_MOVE_THRESHOLD) {
+			isTouchDrag = true;
+		}
+	}
+	
+	function handleNonAnnotationTouchEnd(event: TouchEvent) {
+		// Remove listeners
+		document.removeEventListener('touchmove', handleNonAnnotationTouchMove);
+		document.removeEventListener('touchend', handleNonAnnotationTouchEnd);
+		document.removeEventListener('touchcancel', handleNonAnnotationTouchEnd);
+		
+		// Only seek if this was a tap (not a scroll)
+		if (!isTouchDrag && onSeek) {
+			const clickedTimeSeconds = dragStartTimeMs / 1000;
+			onSeek(clickedTimeSeconds);
+		}
+		
+		// Reset state
+		isTouchDrag = false;
 	}
 
 	function handleGlobalMouseMove(event: MouseEvent) {
@@ -1561,6 +1608,7 @@
 									loopingChunkCount={loopingChunkIndices.size}
 									registerPlayheadLayer={createRegisterCallback(chunk.index)}
 									unregisterPlayheadLayer={createUnregisterCallback(chunk.index)}
+									{isAnnotationMode}
 								/>
 							{:else}
 								<!-- Render placeholder for non-visible chunk (shouldn't happen with virtualization, but kept for safety) -->

@@ -57,7 +57,7 @@
 	}
 </script>
 
-<aside class="w-80 bg-gray-800 border-l border-gray-700 overflow-y-auto h-full">
+<aside class="w-full lg:w-80 bg-gray-800 border-l border-gray-700 overflow-y-auto h-full">
 	<div class="p-4 space-y-2">
 		<!-- Info Bar -->
 		<div class="bg-gray-900 rounded-lg overflow-hidden">
