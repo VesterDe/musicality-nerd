@@ -117,6 +117,22 @@
 		}
 	});
 
+	// Resize canvas when waveformConfig dimensions change (e.g., on window resize)
+	$effect(() => {
+		const width = waveformConfig.width;
+		const height = waveformConfig.height;
+		
+		if (canvasElement) {
+			setupHighDPICanvas(canvasElement, width, height);
+			// Re-get context after resize (context is scaled by setupHighDPICanvas)
+			ctx = canvasElement.getContext('2d');
+		}
+		
+		if (playheadCanvas) {
+			setupHighDPICanvas(playheadCanvas, width, height);
+		}
+	});
+
 	onDestroy(() => {
 		if (unregisterPlayheadLayer) {
 			untrack(() => {

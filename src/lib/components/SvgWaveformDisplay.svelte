@@ -69,6 +69,9 @@
 	let audioSampleRate = $state(44100);
 	let audioDuration = $state(0);
 	
+	// Container width state for resize handling
+	let containerWidthState = $state(800); // Default width
+	
 	// Stem mode state
 	let stemPeaksData: Float32Array[] = $state([]);
 	let stemColors: string[] = $state([]);
@@ -426,8 +429,8 @@
 		return baseChunks;
 	});
 
-	// Get responsive container width  
-	const containerWidth = $derived(waveformContainer?.offsetWidth || 800);
+	// Get responsive container width (reacts to resize via containerWidthState)
+	const containerWidth = $derived(containerWidthState);
 
 	// Helper function to find nearest power of two below or equal to n
 	function nearestPow2BelowOrEqual(n: number): number {
@@ -925,10 +928,39 @@
 		});
 	}
 
-	// Initialize scroll tracking after component mounts
+	// Initialize scroll tracking and resize observation after component mounts
 	onMount(() => {
+		let resizeObserver: ResizeObserver | null = null;
+		let resizeDebounceTimer: number | null = null;
+		const RESIZE_DEBOUNCE_MS = 150; // Debounce resize events
+		let scrollResizeHandler: (() => void) | null = null;
+		
 		// Wait for initial render to get container dimensions
 		const initTimer = setTimeout(() => {
+			// Initialize container width from waveformContainer
+			if (waveformContainer) {
+				containerWidthState = waveformContainer.offsetWidth || 800;
+				
+				// Set up ResizeObserver for waveform container
+				resizeObserver = new ResizeObserver((entries) => {
+					// Debounce resize updates
+					if (resizeDebounceTimer !== null) {
+						clearTimeout(resizeDebounceTimer);
+					}
+					
+					resizeDebounceTimer = window.setTimeout(() => {
+						if (waveformContainer) {
+							const newWidth = waveformContainer.offsetWidth || 800;
+							if (newWidth !== containerWidthState) {
+								containerWidthState = newWidth;
+							}
+						}
+					}, RESIZE_DEBOUNCE_MS);
+				});
+				
+				resizeObserver.observe(waveformContainer);
+			}
+			
 			if (scrollContainer) {
 				// Initialize viewport dimensions
 				scrollTop = scrollContainer.scrollTop;
@@ -938,26 +970,29 @@
 				scrollContainer.addEventListener('scroll', throttledScrollHandler, { passive: true });
 				
 				// Also handle resize to update viewport height
-				const resizeHandler = () => {
+				scrollResizeHandler = () => {
 					if (scrollContainer) {
 						viewportHeight = scrollContainer.clientHeight;
 					}
 				};
-				window.addEventListener('resize', resizeHandler);
-				
-				return () => {
-					scrollContainer?.removeEventListener('scroll', throttledScrollHandler);
-					window.removeEventListener('resize', resizeHandler);
-					if (rafId !== null) {
-						cancelAnimationFrame(rafId);
-						rafId = null;
-					}
-				};
+				window.addEventListener('resize', scrollResizeHandler);
 			}
 		}, 100);
 		
 		return () => {
 			clearTimeout(initTimer);
+			if (resizeDebounceTimer !== null) {
+				clearTimeout(resizeDebounceTimer);
+			}
+			if (resizeObserver) {
+				resizeObserver.disconnect();
+			}
+			if (scrollContainer && throttledScrollHandler) {
+				scrollContainer.removeEventListener('scroll', throttledScrollHandler);
+			}
+			if (scrollResizeHandler) {
+				window.removeEventListener('resize', scrollResizeHandler);
+			}
 			if (rafId !== null) {
 				cancelAnimationFrame(rafId);
 				rafId = null;
