@@ -99,6 +99,35 @@ export function drawBeatGrid(
 }
 
 /**
+ * Draw beat numbers (1-4 cycling) at the top-left of each beat area
+ */
+export function drawBeatNumbers(
+	ctx: CanvasRenderingContext2D,
+	beatsPerLine: number,
+	width: number,
+	height: number
+): void {
+	ctx.save();
+	ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+	ctx.font = '10px monospace';
+	ctx.textAlign = 'left';
+	ctx.textBaseline = 'top';
+	
+	const beatWidth = width / beatsPerLine;
+	const padding = 2; // Small padding from top-left corner
+	
+	for (let i = 0; i < beatsPerLine; i++) {
+		const beatNumber = (i % 4) + 1; // Cycle 1, 2, 3, 4
+		const x = i * beatWidth + padding;
+		const y = padding;
+		
+		ctx.fillText(String(beatNumber), x, y);
+	}
+	
+	ctx.restore();
+}
+
+/**
  * Draw waveform bars
  */
 export function drawWaveformBars(

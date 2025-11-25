@@ -36,6 +36,7 @@
 		onAnnotationModalStateChange?: (isOpen: boolean) => void;
 		filename?: string;
 		currentSession?: { mode?: 'single' | 'stem'; stems?: Array<{ enabled: boolean; color?: string }> } | null;
+		showBeatNumbers?: boolean;
 	}
 
 	let { 
@@ -59,6 +60,7 @@
 		onAnnotationModalStateChange,
 		filename = 'audio',
 		currentSession = null,
+		showBeatNumbers = false,
 	}: Props = $props();
 
 	// Component state
@@ -1644,6 +1646,8 @@
 									registerPlayheadLayer={createRegisterCallback(chunk.index)}
 									unregisterPlayheadLayer={createUnregisterCallback(chunk.index)}
 									{isAnnotationMode}
+									showBeatNumbers={showBeatNumbers}
+									beatsPerLine={beatGrouping}
 								/>
 							{:else}
 								<!-- Render placeholder for non-visible chunk (shouldn't happen with virtualization, but kept for safety) -->

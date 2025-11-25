@@ -10,6 +10,7 @@
 		drawActiveBarFlash,
 		drawSongStartMarker,
 		drawAnnotationPlaceholder,
+		drawBeatNumbers,
 		setupHighDPICanvas
 	} from '../utils/canvasWaveform';
 	import { timeToPixel } from '../utils/svgWaveform';
@@ -50,6 +51,8 @@
 		registerPlayheadLayer?: (canvas: HTMLCanvasElement | null) => void;
 		unregisterPlayheadLayer?: () => void;
 		isAnnotationMode?: boolean;
+		showBeatNumbers?: boolean;
+		beatsPerLine?: number;
 	}
 
 	let {
@@ -87,7 +90,9 @@
 		loopingChunkCount = 0,
 		registerPlayheadLayer,
 		unregisterPlayheadLayer,
-		isAnnotationMode = false
+		isAnnotationMode = false,
+		showBeatNumbers = false,
+		beatsPerLine = 8
 	}: Props = $props();
 
 	// Canvas reference
@@ -182,6 +187,11 @@
 			// Draw beat grid
 			drawBeatGrid(ctx, beatLines, height, activeBeatLineIndices);
 			
+			// Draw beat numbers if enabled
+			if (showBeatNumbers) {
+				drawBeatNumbers(ctx, beatsPerLine, width, height);
+			}
+			
 			// Draw waveform bars
 			if (waveformBarsPerStem && waveformBarsPerStem.length > 0 && stemColors && stemEnabled) {
 				drawWaveformBars(ctx, waveformBars, waveformBarsPerStem, stemColors, stemEnabled);
@@ -231,6 +241,8 @@
 		waveformConfig.height;
 		placeholderAnnotation; // Track placeholder changes for preview
 		bounds; // Track bounds changes
+		showBeatNumbers; // Track beat numbers toggle
+		beatsPerLine; // Track beats per line for beat numbers
 		
 		redraw();
 	});

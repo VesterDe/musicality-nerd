@@ -19,6 +19,7 @@ export class SessionStore {
 	// Display settings
 	beatsPerLine = $state(8);
 	autoFollow = $state(false);
+	showBeatNumbers = $state(false);
 	
 	// Annotation state
 	isAnnotationMode = $state(false);
@@ -209,6 +210,11 @@ export class SessionStore {
 	
 	setAutoFollow(value: boolean) {
 		this.autoFollow = value;
+	}
+	
+	// Beat Numbers Display
+	toggleShowBeatNumbers() {
+		this.showBeatNumbers = !this.showBeatNumbers;
 	}
 	
 	// UI State

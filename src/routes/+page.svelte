@@ -1385,6 +1385,7 @@
 					onAnnotationModalStateChange={handleAnnotationModalStateChange}
 					filename={sessionStore.currentSession.filename.replace(/\.[^/.]+$/, "")}
 					currentSession={sessionStore.currentSession}
+					showBeatNumbers={sessionStore.showBeatNumbers}
 				/>
 			{:else if sessionStore.isSessionInitializing}
 				<!-- Loading state for waveform -->
