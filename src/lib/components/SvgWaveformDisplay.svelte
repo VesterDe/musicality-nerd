@@ -30,17 +30,26 @@
 		onBeatsPerLineChange?: (value: number) => void;
 		isAnnotationMode?: boolean;
 		annotations?: Annotation[];
-		onAnnotationCreated?: (startTimeMs: number, endTimeMs: number, label?: string, color?: string, isPoint?: boolean) => void;
+		onAnnotationCreated?: (
+			startTimeMs: number,
+			endTimeMs: number,
+			label?: string,
+			color?: string,
+			isPoint?: boolean
+		) => void;
 		onAnnotationUpdated?: (id: string, updates: Partial<Annotation>) => void;
 		onAnnotationDeleted?: (id: string) => void;
 		onAnnotationModalStateChange?: (isOpen: boolean) => void;
 		filename?: string;
-		currentSession?: { mode?: 'single' | 'stem'; stems?: Array<{ enabled: boolean; color?: string }> } | null;
+		currentSession?: {
+			mode?: 'single' | 'stem';
+			stems?: Array<{ enabled: boolean; color?: string }>;
+		} | null;
 		showBeatNumbers?: boolean;
 	}
 
-	let { 
-		currentTime = 0, 
+	let {
+		currentTime = 0,
 		bpm = 120,
 		targetBPM = 120,
 		audioEngine,
@@ -60,7 +69,7 @@
 		onAnnotationModalStateChange,
 		filename = 'audio',
 		currentSession = null,
-		showBeatNumbers = false,
+		showBeatNumbers = false
 	}: Props = $props();
 
 	// Component state
@@ -70,16 +79,16 @@
 	let peaksData: Float32Array | null = $state(null);
 	let audioSampleRate = $state(44100);
 	let audioDuration = $state(0);
-	
+
 	// Container width state for resize handling
 	let containerWidthState = $state(800); // Default width
-	
+
 	// Stem mode state
 	let stemPeaksData: Float32Array[] = $state([]);
 	let stemColors: string[] = $state([]);
 	let stemEnabled: boolean[] = $state([]);
 	let isStemMode = $state(false);
-	
+
 	// Virtualization state - scroll-based
 	let scrollContainer: HTMLDivElement | undefined = $state();
 	let scrollTop = $state(0);
@@ -107,7 +116,7 @@
 	let dragCurrentChunk = $state(-1);
 	let lastPointerClientX = $state(0);
 	let lastPointerClientY = $state(0);
-	
+
 	// Touch interaction state for scroll detection
 	let touchStartX = $state(0);
 	let touchStartY = $state(0);
@@ -122,12 +131,15 @@
 
 	// Playhead animation state
 	let playheadAnimator: PlayheadAnimator | null = $state(null);
-	
+
 	// Queue for registrations that happen before animator exists
-	const pendingRegistrations = new Map<number, {
-		canvas: HTMLCanvasElement | null;
-	}>();
-	
+	const pendingRegistrations = new Map<
+		number,
+		{
+			canvas: HTMLCanvasElement | null;
+		}
+	>();
+
 	// Stable callback functions for playhead layer registration
 	function createRegisterCallback(chunkIndex: number) {
 		return (canvas: HTMLCanvasElement | null) => {
@@ -139,7 +151,7 @@
 			}
 		};
 	}
-	
+
 	function createUnregisterCallback(chunkIndex: number) {
 		return () => {
 			if (playheadAnimator) {
@@ -194,13 +206,13 @@
 
 		// Calculate playhead X position
 		let x = 0;
-		
+
 		if (currentChunkIndex === -1) {
 			// Special chunk -1 handling
 			if (beatOffset > 0) {
 				const offsetInSeconds = beatOffset / 1000;
 				const songStartX = (offsetInSeconds / chunkDuration) * containerWidth;
-				
+
 				if (timeSeconds === 0) {
 					x = songStartX;
 				} else if (timeSeconds <= chunkDuration) {
@@ -213,7 +225,7 @@
 			} else if (beatOffset < 0) {
 				const offsetInSeconds = Math.abs(beatOffset) / 1000;
 				const songStartX = ((chunkDuration - offsetInSeconds) / chunkDuration) * containerWidth;
-				
+
 				if (timeSeconds === 0) {
 					x = songStartX;
 				} else if (timeSeconds <= offsetInSeconds) {
@@ -256,16 +268,23 @@
 		private rafId: number | null = null;
 		private isRunning = false;
 		private getCurrentTime: () => number;
-		private computePosition: (time: number) => { chunkIndex: number; chunkContainerIndex: number; x: number } | null;
-		private chunkLayers: Map<number, {
-			canvas: HTMLCanvasElement | null;
-			ctx: CanvasRenderingContext2D | null;
-			height: number;
-		}> = new Map();
+		private computePosition: (
+			time: number
+		) => { chunkIndex: number; chunkContainerIndex: number; x: number } | null;
+		private chunkLayers: Map<
+			number,
+			{
+				canvas: HTMLCanvasElement | null;
+				ctx: CanvasRenderingContext2D | null;
+				height: number;
+			}
+		> = new Map();
 
 		constructor(
 			getCurrentTime: () => number,
-			computePosition: (time: number) => { chunkIndex: number; chunkContainerIndex: number; x: number } | null
+			computePosition: (
+				time: number
+			) => { chunkIndex: number; chunkContainerIndex: number; x: number } | null
 		) {
 			this.getCurrentTime = getCurrentTime;
 			this.computePosition = computePosition;
@@ -274,10 +293,7 @@
 		/**
 		 * Register a playhead layer for a chunk
 		 */
-		registerChunkLayer(
-			chunkIndex: number,
-			canvas: HTMLCanvasElement | null
-		): void {
+		registerChunkLayer(chunkIndex: number, canvas: HTMLCanvasElement | null): void {
 			const ctx = canvas?.getContext('2d') || null;
 			const height = canvas?.height || 0;
 			this.chunkLayers.set(chunkIndex, { canvas, ctx, height });
@@ -323,7 +339,7 @@
 			const dpr = window.devicePixelRatio || 1;
 			// Canvas context is already scaled by setupHighDPICanvas, so use logical coordinates
 			const logicalHeight = activeLayer.height / dpr;
-			
+
 			// Draw playhead line on canvas (context is already scaled, so use logical coordinates)
 			activeLayer.ctx.strokeStyle = '#fbbf24';
 			activeLayer.ctx.lineWidth = 1.5;
@@ -333,18 +349,18 @@
 			activeLayer.ctx.lineTo(roundedX, logicalHeight);
 			activeLayer.ctx.stroke();
 			activeLayer.ctx.globalAlpha = 1.0;
-			
+
 			// Draw triangles with glow effect (simulating drop-shadow filter)
 			const triangleSize = 8;
 			const triangleX = roundedX - 4;
-			
+
 			// Set shadow for glow effect
 			activeLayer.ctx.shadowColor = 'rgba(251, 191, 36, 0.8)';
 			activeLayer.ctx.shadowBlur = 2;
 			activeLayer.ctx.shadowOffsetX = 0;
 			activeLayer.ctx.shadowOffsetY = 0;
 			activeLayer.ctx.fillStyle = '#fbbf24';
-			
+
 			// Draw top triangle (pointing down) at the top of the canvas
 			activeLayer.ctx.beginPath();
 			activeLayer.ctx.moveTo(triangleX, 0);
@@ -352,7 +368,7 @@
 			activeLayer.ctx.lineTo(triangleX + triangleSize / 2, triangleSize);
 			activeLayer.ctx.closePath();
 			activeLayer.ctx.fill();
-			
+
 			// Draw bottom triangle (pointing up) near the bottom of the canvas
 			// Original positioning: bottomY = topY + waveformConfig.height - 10, where topY = 42 (40px header + 2px)
 			// Relative to canvas (which starts at 40px): bottomY - 40 = waveformConfig.height - 8
@@ -367,7 +383,7 @@
 			activeLayer.ctx.lineTo(triangleX + triangleSize / 2, bottomTriangleY);
 			activeLayer.ctx.closePath();
 			activeLayer.ctx.fill();
-			
+
 			// Reset shadow
 			activeLayer.ctx.shadowColor = 'transparent';
 			activeLayer.ctx.shadowBlur = 0;
@@ -378,10 +394,10 @@
 		 */
 		private animate = (): void => {
 			if (!this.isRunning) return;
-			
+
 			const time = this.getCurrentTime();
 			this.updatePosition(time);
-			
+
 			this.rafId = requestAnimationFrame(this.animate);
 		};
 
@@ -390,9 +406,9 @@
 		 */
 		setPlayingState(playing: boolean): void {
 			if (playing === this.isRunning) return;
-			
+
 			this.isRunning = playing;
-			
+
 			if (playing) {
 				this.rafId = requestAnimationFrame(this.animate);
 			} else {
@@ -455,13 +471,13 @@
 		if (rectsPerBeatMode !== 'auto' && typeof rectsPerBeatMode === 'number') {
 			return rectsPerBeatMode;
 		}
-		
+
 		// Auto mode: compute desired density based on viewport width
 		const pixelsPerBeat = containerWidth / beatGrouping;
 		const desired = Math.max(1, Math.floor(pixelsPerBeat / 2)); // ~2px per rect
 		const capped = Math.min(MAX_PER_BEAT, desired);
 		const pow2 = nearestPow2BelowOrEqual(capped);
-		
+
 		// Ensure we meet the minimum requirement while keeping it a power of two
 		if (pow2 >= MIN_PER_BEAT) {
 			return pow2;
@@ -473,18 +489,20 @@
 
 	// Compute total target bars as beats per line * rectangles per beat
 	const targetBars = $derived(beatGrouping * rectsPerBeat);
-	
-	const waveformConfig = $derived.by((): WaveformConfig => ({
-		width: containerWidth,
-		height: 96,
-		sampleRate: audioSampleRate,
-		audioDuration,
-		beatOffset,
-		chunkDuration
-	}));
+
+	const waveformConfig = $derived.by(
+		(): WaveformConfig => ({
+			width: containerWidth,
+			height: 96,
+			sampleRate: audioSampleRate,
+			audioDuration,
+			beatOffset,
+			chunkDuration
+		})
+	);
 
 	// Virtualization: Calculate chunk height (waveform height + header height + spacing)
-	const chunkHeight = $derived(waveformConfig.height + 40 + 8); // 40px header + 8px spacing (space-y-2)
+	const chunkHeight = $derived(waveformConfig.height + 24 + 8); // 24px header + 8px spacing (space-y-2)
 
 	/**
 	 * Calculate virtual window: which chunks should be rendered based on scroll position
@@ -517,14 +535,14 @@
 	// Compute all chunk metadata first (lightweight)
 	const chunkMetadata = $derived.by(() => {
 		if (!isInitialized || totalChunks === 0) return [];
-		
+
 		const metadata = [];
 		for (let chunkIndex = beatOffset !== 0 ? -1 : 0; chunkIndex < totalChunks; chunkIndex++) {
 			if (chunkIndex === -1 && beatOffset === 0) continue;
-			
+
 			const bounds = calculateChunkBounds(chunkIndex, waveformConfig);
 			const isSpecialChunk = chunkIndex === -1 && beatOffset !== 0;
-			
+
 			metadata.push({
 				index: chunkIndex,
 				bounds,
@@ -564,16 +582,21 @@
 		}
 		return indices;
 	});
-	
+
 	// Heavy computation: generate waveform data for visible chunks only
 	const rawChunkData = $derived.by(() => {
-		if ((!peaksData && !isStemMode) || (isStemMode && stemPeaksData.length === 0) || chunkMetadata.length === 0) return [];
+		if (
+			(!peaksData && !isStemMode) ||
+			(isStemMode && stemPeaksData.length === 0) ||
+			chunkMetadata.length === 0
+		)
+			return [];
 
 		const startTime = performance.now();
 		const chunks = [];
 		let visibleChunkCount = 0;
 		let stemBarGenerationCount = 0;
-		
+
 		// OPTIMIZATION: Only process chunks that are visible or in buffer zone
 		// We still need metadata for all chunks for scrolling/virtualization, but we only
 		// generate expensive waveform bars for visible chunks
@@ -582,13 +605,23 @@
 			const shouldRenderContent = isChunkInRenderRange(meta.index);
 
 			// Get annotations for this chunk (lightweight - we'll pass to bar generation)
-			const chunkAnnotations = annotations.filter(annotation =>
-				annotation.startTimeMs < meta.bounds.endTimeMs && annotation.endTimeMs > meta.bounds.startTimeMs
+			const chunkAnnotations = annotations.filter(
+				(annotation) =>
+					annotation.startTimeMs < meta.bounds.endTimeMs &&
+					annotation.endTimeMs > meta.bounds.startTimeMs
 			);
 
 			// Generate waveform data only for visible chunks
-			let waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }> = [];
-			let waveformBarsPerStem: Array<Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }>> = [];
+			let waveformBars: Array<{
+				x: number;
+				y: number;
+				width: number;
+				height: number;
+				isEmpty?: boolean;
+			}> = [];
+			let waveformBarsPerStem: Array<
+				Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }>
+			> = [];
 			let beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }> = [];
 			let headerInfo = '';
 
@@ -708,12 +741,14 @@
 				shouldRenderContent
 			});
 		}
-		
+
 		const endTime = performance.now();
 		if (endTime - startTime > 50) {
-			console.warn(`rawChunkData took ${(endTime - startTime).toFixed(2)}ms: ${chunkMetadata.length} total chunks, ${visibleChunkCount} visible, ${stemBarGenerationCount} stem bar generations`);
+			console.warn(
+				`rawChunkData took ${(endTime - startTime).toFixed(2)}ms: ${chunkMetadata.length} total chunks, ${visibleChunkCount} visible, ${stemBarGenerationCount} stem bar generations`
+			);
 		}
-		
+
 		return chunks;
 	});
 
@@ -723,96 +758,106 @@
 		chunkBounds: ChunkBounds
 	): Array<Annotation & { stackPosition: number }> {
 		if (annotations.length <= 1) {
-			return annotations.map(annotation => ({ ...annotation, stackPosition: 0 }));
+			return annotations.map((annotation) => ({ ...annotation, stackPosition: 0 }));
 		}
-		
+
 		// Sort annotations by start time
-		const sortedAnnotations: Annotation[] = [...annotations].sort((a, b) => a.startTimeMs - b.startTimeMs);
+		const sortedAnnotations: Annotation[] = [...annotations].sort(
+			(a, b) => a.startTimeMs - b.startTimeMs
+		);
 		const annotationsWithStacks: Array<Annotation & { stackPosition: number }> = [];
-		
+
 		// Convert pixel collision width to time for point annotations
-		const pointCollisionWidthMs = (50 / waveformConfig.width) * (chunkBounds.endTimeMs - chunkBounds.startTimeMs);
-		
+		const pointCollisionWidthMs =
+			(50 / waveformConfig.width) * (chunkBounds.endTimeMs - chunkBounds.startTimeMs);
+
 		for (const annotation of sortedAnnotations) {
 			let stackPosition = 0;
-			
+
 			// Check for overlaps with previously placed annotations
 			while (true) {
-				const overlapping = annotationsWithStacks.some(placedAnnotation => {
+				const overlapping = annotationsWithStacks.some((placedAnnotation) => {
 					// Check if they're at the same stack level and overlap in time
 					if (placedAnnotation.stackPosition !== stackPosition) return false;
-					
+
 					// Determine effective collision bounds for both annotations
-					const currentIsPoint = annotation.isPoint || annotation.startTimeMs === annotation.endTimeMs;
-					const placedIsPoint = placedAnnotation.isPoint || placedAnnotation.startTimeMs === placedAnnotation.endTimeMs;
-					
+					const currentIsPoint =
+						annotation.isPoint || annotation.startTimeMs === annotation.endTimeMs;
+					const placedIsPoint =
+						placedAnnotation.isPoint || placedAnnotation.startTimeMs === placedAnnotation.endTimeMs;
+
 					let currentStart = annotation.startTimeMs;
 					let currentEnd = annotation.endTimeMs;
 					let placedStart = placedAnnotation.startTimeMs;
 					let placedEnd = placedAnnotation.endTimeMs;
-					
+
 					// Expand collision bounds for point annotations
 					if (currentIsPoint) {
 						const halfCollision = pointCollisionWidthMs / 2;
 						currentStart = annotation.startTimeMs - halfCollision;
 						currentEnd = annotation.startTimeMs + halfCollision;
 					}
-					
+
 					if (placedIsPoint) {
 						const halfCollision = pointCollisionWidthMs / 2;
 						placedStart = placedAnnotation.startTimeMs - halfCollision;
 						placedEnd = placedAnnotation.startTimeMs + halfCollision;
 					}
-					
+
 					// Check time overlap with collision bounds
 					const timeOverlap = currentStart < placedEnd && currentEnd > placedStart;
-					
+
 					return timeOverlap;
 				});
-				
+
 				if (!overlapping) {
 					break;
 				}
-				
+
 				stackPosition++;
 			}
-			
+
 			annotationsWithStacks.push({ ...annotation, stackPosition });
 		}
-		
+
 		return annotationsWithStacks;
 	}
 
 	// Lightweight computation: combine raw data with annotations and dynamic state
 	const chunkData = $derived.by(() => {
 		if (rawChunkData.length === 0) return [];
-		
-		return rawChunkData.map(rawChunk => {
+
+		return rawChunkData.map((rawChunk) => {
 			// Only process annotations for visible chunks
 			let stackedAnnotations: Array<Annotation & { stackPosition: number }> = [];
-			
+
 			if (rawChunk.shouldRenderContent) {
 				// Calculate chunk annotations (lightweight)
-				const chunkAnnotations = annotations.filter(annotation => 
-					annotation.startTimeMs < rawChunk.bounds.endTimeMs && annotation.endTimeMs > rawChunk.bounds.startTimeMs
+				const chunkAnnotations = annotations.filter(
+					(annotation) =>
+						annotation.startTimeMs < rawChunk.bounds.endTimeMs &&
+						annotation.endTimeMs > rawChunk.bounds.startTimeMs
 				);
-				
+
 				// Calculate stacking positions for overlapping annotations
 				stackedAnnotations = calculateAnnotationStacks(chunkAnnotations, rawChunk.bounds);
 			}
-			
+
 			// Calculate placeholder visibility for this chunk (lightweight)
 			// Use <= and >= to handle point annotations at chunk boundaries
-			const placeholderVisible = showPlaceholder && 
-				placeholderStartTimeMs <= rawChunk.bounds.endTimeMs && placeholderEndTimeMs >= rawChunk.bounds.startTimeMs;
-			
+			const placeholderVisible =
+				showPlaceholder &&
+				placeholderStartTimeMs <= rawChunk.bounds.endTimeMs &&
+				placeholderEndTimeMs >= rawChunk.bounds.startTimeMs;
+
 			let placeholderAnnotation = null;
 			if (placeholderVisible) {
 				placeholderAnnotation = {
 					id: 'placeholder',
 					startTimeMs: placeholderStartTimeMs,
 					endTimeMs: placeholderEndTimeMs,
-					label: placeholderStartTimeMs === placeholderEndTimeMs ? 'Point annotation' : 'New annotation',
+					label:
+						placeholderStartTimeMs === placeholderEndTimeMs ? 'Point annotation' : 'New annotation',
 					color: '#ff5500',
 					isPoint: placeholderStartTimeMs === placeholderEndTimeMs,
 					stackPosition: 0 // Placeholder always goes at bottom
@@ -832,7 +877,7 @@
 	function isChunkInRenderRange(chunkIndex: number): boolean {
 		return visibleChunkIndices.has(chunkIndex);
 	}
-	
+
 	// Initialize audio data when AudioEngine changes
 	let isInitializing = $state(false);
 	let lastAudioEngineId = $state<AudioEngine | null>(null);
@@ -852,33 +897,36 @@
 	// Sync stem enabled state and colors from session when they change
 	$effect(() => {
 		if (isStemMode && currentSession?.mode === 'stem' && currentSession.stems) {
-			stemEnabled = currentSession.stems.map(stem => stem.enabled);
-			stemColors = currentSession.stems.map(stem => stem.color || '#3b82f6');
+			stemEnabled = currentSession.stems.map((stem) => stem.enabled);
+			stemColors = currentSession.stems.map((stem) => stem.color || '#3b82f6');
 		}
 	});
-	
+
 	// Initialize playhead animator (only when audio is initialized)
 	$effect(() => {
 		const shouldInit = isInitialized && audioDuration > 0 && audioEngine;
 
 		if (shouldInit && !playheadAnimator) {
 			const computePos = (time: number) => {
-				return computePlayheadPosition(time, chunkDuration, containerWidth, beatOffset, audioDuration);
+				return computePlayheadPosition(
+					time,
+					chunkDuration,
+					containerWidth,
+					beatOffset,
+					audioDuration
+				);
 			};
 
-			const animator = new PlayheadAnimator(
-				() => audioEngine.getCurrentTime(),
-				computePos
-			);
+			const animator = new PlayheadAnimator(() => audioEngine.getCurrentTime(), computePos);
 
 			playheadAnimator = animator;
-			
+
 			// Apply all pending registrations that happened before animator was ready
 			for (const [chunkIndex, { canvas }] of pendingRegistrations.entries()) {
 				animator.registerChunkLayer(chunkIndex, canvas);
 			}
 			pendingRegistrations.clear();
-			
+
 			// Sync immediately after creation - this will update any already-registered layers
 			// New layers will also sync when they register
 			requestAnimationFrame(() => {
@@ -915,7 +963,7 @@
 	// Scroll handler with throttling (max 60Hz)
 	function handleScroll() {
 		if (!scrollContainer) return;
-		
+
 		scrollTop = scrollContainer.scrollTop;
 		viewportHeight = scrollContainer.clientHeight;
 	}
@@ -923,7 +971,7 @@
 	// Throttled scroll handler using requestAnimationFrame
 	function throttledScrollHandler() {
 		if (rafId !== null) return; // Already scheduled
-		
+
 		rafId = requestAnimationFrame(() => {
 			handleScroll();
 			rafId = null;
@@ -936,20 +984,20 @@
 		let resizeDebounceTimer: number | null = null;
 		const RESIZE_DEBOUNCE_MS = 150; // Debounce resize events
 		let scrollResizeHandler: (() => void) | null = null;
-		
+
 		// Wait for initial render to get container dimensions
 		const initTimer = setTimeout(() => {
 			// Initialize container width from waveformContainer
 			if (waveformContainer) {
 				containerWidthState = waveformContainer.offsetWidth || 800;
-				
+
 				// Set up ResizeObserver for waveform container
 				resizeObserver = new ResizeObserver((entries) => {
 					// Debounce resize updates
 					if (resizeDebounceTimer !== null) {
 						clearTimeout(resizeDebounceTimer);
 					}
-					
+
 					resizeDebounceTimer = window.setTimeout(() => {
 						if (waveformContainer) {
 							const newWidth = waveformContainer.offsetWidth || 800;
@@ -959,18 +1007,18 @@
 						}
 					}, RESIZE_DEBOUNCE_MS);
 				});
-				
+
 				resizeObserver.observe(waveformContainer);
 			}
-			
+
 			if (scrollContainer) {
 				// Initialize viewport dimensions
 				scrollTop = scrollContainer.scrollTop;
 				viewportHeight = scrollContainer.clientHeight;
-				
+
 				// Attach scroll listener with throttling
 				scrollContainer.addEventListener('scroll', throttledScrollHandler, { passive: true });
-				
+
 				// Also handle resize to update viewport height
 				scrollResizeHandler = () => {
 					if (scrollContainer) {
@@ -980,7 +1028,7 @@
 				window.addEventListener('resize', scrollResizeHandler);
 			}
 		}, 100);
-		
+
 		return () => {
 			clearTimeout(initTimer);
 			if (resizeDebounceTimer !== null) {
@@ -1015,19 +1063,23 @@
 		}
 	});
 
-
-
 	// Calculate playhead position declaratively (for non-critical UI that still uses reactive values)
 	// Note: Actual playhead rendering is handled by PlayheadAnimator via rAF
 	const playheadInfo = $derived.by(() => {
 		if (!isInitialized || audioDuration <= 0) return null;
-		return computePlayheadPosition(currentTime, chunkDuration, containerWidth, beatOffset, audioDuration);
+		return computePlayheadPosition(
+			currentTime,
+			chunkDuration,
+			containerWidth,
+			beatOffset,
+			audioDuration
+		);
 	});
 
 	// Compute currently active bar index for the active chunk only
 	const activeBarInfo = $derived.by(() => {
 		if (!playheadInfo || !isInitialized || audioDuration <= 0) return null;
-		const currentChunk = rawChunkData.find(chunk => chunk.index === playheadInfo.chunkIndex);
+		const currentChunk = rawChunkData.find((chunk) => chunk.index === playheadInfo.chunkIndex);
 		if (!currentChunk) return null;
 		const barCount = targetBars;
 		const barWidth = containerWidth / barCount;
@@ -1056,7 +1108,7 @@
 
 		let lineIndex = 0;
 		for (let i = 0.5; i < beatGrouping; i += 0.5) {
-			const beatLineGridTime = chunkStartGridTime + (i * beatDuration);
+			const beatLineGridTime = chunkStartGridTime + i * beatDuration;
 			const timeDiff = Math.abs(gridTime - beatLineGridTime);
 			if (timeDiff <= flashDuration / 2) {
 				indices.add(lineIndex);
@@ -1066,7 +1118,6 @@
 
 		return indices;
 	});
-
 
 	// Notify parent when annotation modal state changes
 	$effect(() => {
@@ -1091,28 +1142,37 @@
 				const firstBuffer = stemBuffers[0];
 				audioSampleRate = firstBuffer.sampleRate;
 				audioDuration = firstBuffer.duration;
-				
+
 				// Extract peaks data from all stems
-				stemPeaksData = stemBuffers.map(buffer => buffer.getChannelData(0));
+				stemPeaksData = stemBuffers.map((buffer) => buffer.getChannelData(0));
 				isStemMode = true;
 				console.timeEnd('extractPeaks');
-				
+
 				// Get enabled state (default to all enabled if not available)
 				stemEnabled = audioEngine.getStemsState();
 				if (stemEnabled.length === 0) {
 					stemEnabled = stemBuffers.map(() => true);
 				}
-				
+
 				// Get colors from session if available, otherwise use defaults
 				if (currentSession?.mode === 'stem' && currentSession.stems) {
-					stemColors = currentSession.stems.map(stem => stem.color || '#3b82f6');
-					stemEnabled = currentSession.stems.map(stem => stem.enabled);
+					stemColors = currentSession.stems.map((stem) => stem.color || '#3b82f6');
+					stemEnabled = currentSession.stems.map((stem) => stem.enabled);
 				} else {
-					const defaultColors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+					const defaultColors = [
+						'#3b82f6',
+						'#ef4444',
+						'#10b981',
+						'#f59e0b',
+						'#8b5cf6',
+						'#ec4899',
+						'#06b6d4',
+						'#84cc16'
+					];
 					stemColors = stemBuffers.map((_, i) => defaultColors[i % defaultColors.length]);
 					stemEnabled = stemBuffers.map(() => true);
 				}
-				
+
 				// Also set peaksData to first stem for backward compatibility
 				peaksData = stemPeaksData[0];
 			} else {
@@ -1131,7 +1191,7 @@
 				stemColors = [];
 				stemEnabled = [];
 			}
-			
+
 			isInitialized = true;
 			console.timeEnd('initializeFromAudioEngine');
 		} catch (error) {
@@ -1140,19 +1200,15 @@
 		}
 	}
 
-
-
-
-
 	function handleWaveformMouseDown(event: MouseEvent, chunkIndex: number, bounds: ChunkBounds) {
 		// Canvas element for waveform interaction
 		const element = event.currentTarget as HTMLCanvasElement;
 		const rect = element.getBoundingClientRect();
 		const x = event.clientX - rect.left;
-		
+
 		// Convert pixel position to time (in milliseconds)
 		const clickedTimeMs = pixelToTime(x, bounds, waveformConfig.width);
-		
+
 		// If annotation mode is off, seek to clicked position and return early
 		if (!isAnnotationMode) {
 			if (onSeek) {
@@ -1163,11 +1219,11 @@
 			event.preventDefault();
 			return;
 		}
-		
+
 		// Annotation mode is on - start drag for annotation creation
 		lastPointerClientX = event.clientX;
 		lastPointerClientY = event.clientY;
-		
+
 		dragStartTimeMs = clickedTimeMs;
 		dragEndTimeMs = dragStartTimeMs;
 		dragStartChunk = chunkIndex;
@@ -1182,7 +1238,7 @@
 		// Add global mouse handlers
 		document.addEventListener('mousemove', handleGlobalMouseMove);
 		document.addEventListener('mouseup', handleGlobalMouseUp);
-		
+
 		event.preventDefault();
 	}
 
@@ -1193,31 +1249,31 @@
 		const element = event.currentTarget as HTMLCanvasElement;
 		const rect = element.getBoundingClientRect();
 		const x = touch.clientX - rect.left;
-		
+
 		// Convert pixel position to time (in milliseconds)
 		const clickedTimeMs = pixelToTime(x, bounds, waveformConfig.width);
-		
+
 		// Store touch start position and time for scroll detection
 		touchStartX = touch.clientX;
 		touchStartY = touch.clientY;
 		touchStartTime = Date.now();
 		isTouchDrag = false;
-		
+
 		// If annotation mode is off, track touch but don't seek yet (wait for touchend)
 		if (!isAnnotationMode) {
 			// Store the seek target for potential tap
 			dragStartTimeMs = clickedTimeMs;
 			dragStartChunk = chunkIndex;
-			
+
 			// Add global touch handlers to detect if this is a scroll or tap
 			document.addEventListener('touchmove', handleNonAnnotationTouchMove, { passive: true });
 			document.addEventListener('touchend', handleNonAnnotationTouchEnd, { passive: true });
 			document.addEventListener('touchcancel', handleNonAnnotationTouchEnd, { passive: true });
-			
+
 			// Don't preventDefault - allow scrolling
 			return;
 		}
-		
+
 		// Annotation mode is on - start drag for annotation creation
 		lastPointerClientX = touch.clientX;
 		lastPointerClientY = touch.clientY;
@@ -1240,33 +1296,33 @@
 
 		event.preventDefault();
 	}
-	
+
 	function handleNonAnnotationTouchMove(event: TouchEvent) {
 		if (event.touches.length === 0) return;
 		const touch = event.touches[0];
-		
+
 		// Check if touch has moved significantly (indicating a scroll)
 		const deltaX = Math.abs(touch.clientX - touchStartX);
 		const deltaY = Math.abs(touch.clientY - touchStartY);
-		
+
 		// If moved more than threshold, consider it a scroll
 		if (deltaX > TOUCH_MOVE_THRESHOLD || deltaY > TOUCH_MOVE_THRESHOLD) {
 			isTouchDrag = true;
 		}
 	}
-	
+
 	function handleNonAnnotationTouchEnd(event: TouchEvent) {
 		// Remove listeners
 		document.removeEventListener('touchmove', handleNonAnnotationTouchMove);
 		document.removeEventListener('touchend', handleNonAnnotationTouchEnd);
 		document.removeEventListener('touchcancel', handleNonAnnotationTouchEnd);
-		
+
 		// Only seek if this was a tap (not a scroll)
 		if (!isTouchDrag && onSeek) {
 			const clickedTimeSeconds = dragStartTimeMs / 1000;
 			onSeek(clickedTimeSeconds);
 		}
-		
+
 		// Reset state
 		isTouchDrag = false;
 	}
@@ -1275,7 +1331,9 @@
 		if (!isDragging) return;
 
 		// Find which chunk we're over
-		const chunkElement = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-chunk-index]');
+		const chunkElement = document
+			.elementFromPoint(event.clientX, event.clientY)
+			?.closest('[data-chunk-index]');
 		if (chunkElement) {
 			const chunkIndex = parseInt(chunkElement.getAttribute('data-chunk-index') || '0');
 			// Look for canvas element
@@ -1285,7 +1343,7 @@
 				const rect = waveformElement.getBoundingClientRect();
 				const x = event.clientX - rect.left;
 				const bounds = calculateChunkBounds(chunkIndex, waveformConfig);
-				
+
 				dragEndTimeMs = pixelToTime(x, bounds, waveformConfig.width);
 				dragCurrentChunk = chunkIndex;
 				lastPointerClientX = event.clientX;
@@ -1312,7 +1370,9 @@
 
 		// Finalize placeholder times to match what will be shown in popup
 		annotationStartTimeMs = Math.min(dragStartTimeMs, dragEndTimeMs);
-		annotationEndTimeMs = isPoint ? annotationStartTimeMs : Math.max(dragStartTimeMs, dragEndTimeMs);
+		annotationEndTimeMs = isPoint
+			? annotationStartTimeMs
+			: Math.max(dragStartTimeMs, dragEndTimeMs);
 		placeholderStartTimeMs = annotationStartTimeMs;
 		placeholderEndTimeMs = annotationEndTimeMs;
 		// Keep placeholder visible while popup is open - it will be cleared on save/cancel
@@ -1330,7 +1390,9 @@
 		const touch = event.touches[0];
 
 		// Find which chunk we're over
-		const chunkElement = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('[data-chunk-index]');
+		const chunkElement = document
+			.elementFromPoint(touch.clientX, touch.clientY)
+			?.closest('[data-chunk-index]');
 		if (chunkElement) {
 			const chunkIndex = parseInt(chunkElement.getAttribute('data-chunk-index') || '0');
 			// Look for canvas element
@@ -1340,7 +1402,7 @@
 				const rect = waveformElement.getBoundingClientRect();
 				const x = touch.clientX - rect.left;
 				const bounds = calculateChunkBounds(chunkIndex, waveformConfig);
-				
+
 				dragEndTimeMs = pixelToTime(x, bounds, waveformConfig.width);
 				dragCurrentChunk = chunkIndex;
 				lastPointerClientX = touch.clientX;
@@ -1370,7 +1432,9 @@
 
 		// Finalize placeholder times to match what will be shown in popup
 		annotationStartTimeMs = Math.min(dragStartTimeMs, dragEndTimeMs);
-		annotationEndTimeMs = isPoint ? annotationStartTimeMs : Math.max(dragStartTimeMs, dragEndTimeMs);
+		annotationEndTimeMs = isPoint
+			? annotationStartTimeMs
+			: Math.max(dragStartTimeMs, dragEndTimeMs);
 		placeholderStartTimeMs = annotationStartTimeMs;
 		placeholderEndTimeMs = annotationEndTimeMs;
 		// Keep placeholder visible while popup is open - it will be cleared on save/cancel
@@ -1389,10 +1453,9 @@
 		onChunkLoop?.(chunkIndex, startTime, endTime);
 	}
 
-
 	function handleAnnotationSave(event: CustomEvent) {
 		const { label, color, startTimeMs, endTimeMs, isPoint } = event.detail;
-		
+
 		if (editingAnnotation) {
 			// Update existing annotation
 			onAnnotationUpdated?.(editingAnnotation.id, { label, color, startTimeMs, endTimeMs });
@@ -1400,7 +1463,7 @@
 			// Create new annotation
 			onAnnotationCreated?.(startTimeMs, endTimeMs, label, color, isPoint);
 		}
-		
+
 		showAnnotationPopup = false;
 		showPlaceholder = false;
 		editingAnnotation = null;
@@ -1411,7 +1474,6 @@
 		showPlaceholder = false;
 		editingAnnotation = null;
 	}
-
 
 	function handleEditAnnotation(annotation: Annotation) {
 		editingAnnotation = annotation;
@@ -1427,10 +1489,14 @@
 		onAnnotationDeleted?.(annotationId);
 	}
 
-	function handleMoveAnnotation(annotationId: string, newStartTimeMs: number, newEndTimeMs: number) {
-		onAnnotationUpdated?.(annotationId, { 
-			startTimeMs: newStartTimeMs, 
-			endTimeMs: newEndTimeMs 
+	function handleMoveAnnotation(
+		annotationId: string,
+		newStartTimeMs: number,
+		newEndTimeMs: number
+	) {
+		onAnnotationUpdated?.(annotationId, {
+			startTimeMs: newStartTimeMs,
+			endTimeMs: newEndTimeMs
 		});
 	}
 
@@ -1438,22 +1504,28 @@
 		// Calculate the duration of the annotation
 		const duration = annotation.endTimeMs - annotation.startTimeMs;
 		const isPoint = annotation.isPoint || duration === 0;
-		
+
 		// Position the duplicate immediately to the right
 		// For point annotations, add a small offset (500ms)
 		// For duration annotations, place it right after the original ends
 		const offset = isPoint ? 200 : duration || 200;
 		const newStartTimeMs = annotation.endTimeMs + offset;
 		const newEndTimeMs = isPoint ? newStartTimeMs : newStartTimeMs + duration;
-		
+
 		// Create the duplicate with same label and color
-		onAnnotationCreated?.(newStartTimeMs, newEndTimeMs, annotation.label, annotation.color, isPoint);
+		onAnnotationCreated?.(
+			newStartTimeMs,
+			newEndTimeMs,
+			annotation.label,
+			annotation.color,
+			isPoint
+		);
 	}
 
 	async function handleChunkExport(chunkIndex: number, startTime: number, endTime: number) {
 		try {
 			exportingChunks.add(chunkIndex);
-			
+
 			// Generate meaningful filename
 			const chunkName = chunkIndex === -1 ? 'pre-song' : `chunk_${chunkIndex}`;
 			const exportFilename = `${filename}_${chunkName}.wav`;
@@ -1462,7 +1534,7 @@
 
 			// Check if we're in stem mode
 			if (audioEngine.isInStemMode) {
-        debugger
+				debugger;
 				// Stem mode: mix all enabled stems
 				const stemBuffers = audioEngine.getStemBuffers();
 				if (!stemBuffers || stemBuffers.length === 0) {
@@ -1472,12 +1544,13 @@
 
 				// Get enabled state for each stem
 				// Use stemEnabled array if available and matches length, otherwise default to all enabled
-				const enabledFlags = stemEnabled.length === stemBuffers.length 
-					? [...stemEnabled] 
-					: stemBuffers.map(() => true);
+				const enabledFlags =
+					stemEnabled.length === stemBuffers.length
+						? [...stemEnabled]
+						: stemBuffers.map(() => true);
 
 				// Check if any stems are enabled
-				if (!enabledFlags.some(enabled => enabled)) {
+				if (!enabledFlags.some((enabled) => enabled)) {
 					alert('No stems are enabled. Please enable at least one stem to export.');
 					return;
 				}
@@ -1498,7 +1571,9 @@
 					return;
 				}
 
-				await exportService.exportChunk(audioBuffer, startTime, endTime, exportFilename, { playbackRate });
+				await exportService.exportChunk(audioBuffer, startTime, endTime, exportFilename, {
+					playbackRate
+				});
 			}
 		} catch (error) {
 			console.error('Failed to export chunk:', error);
@@ -1518,14 +1593,14 @@
 
 		try {
 			// Convert looping chunk indices to chunk data with timing
-			const chunks = Array.from(loopingChunkIndices).map(chunkIndex => {
+			const chunks = Array.from(loopingChunkIndices).map((chunkIndex) => {
 				const beatsPerChunk = beatGrouping;
 				const chunkDuration = beatsPerChunk * (60 / bpm);
 				const offsetInSeconds = beatOffset / 1000;
-				
+
 				let chunkStartTime: number;
 				let chunkEndTime: number;
-				
+
 				if (chunkIndex === -1) {
 					// Special chunk -1 handling
 					if (beatOffset > 0) {
@@ -1551,21 +1626,22 @@
 						chunkEndTime = (chunkIndex + 1) * chunkDuration;
 					}
 				}
-				
+
 				return {
 					startTime: Math.max(0, chunkStartTime),
 					endTime: Math.min(chunkEndTime, audioDuration),
 					index: chunkIndex
 				};
 			});
-			
+
 			// Generate filename for chunk range
 			const sortedIndices = Array.from(loopingChunkIndices).sort((a, b) => a - b);
-			const rangeStr = sortedIndices.length === 1 
-				? `chunk_${sortedIndices[0] === -1 ? 'pre-song' : sortedIndices[0]}`
-				: `chunks_${sortedIndices[0] === -1 ? 'pre-song' : sortedIndices[0]}-${sortedIndices[sortedIndices.length - 1]}`;
+			const rangeStr =
+				sortedIndices.length === 1
+					? `chunk_${sortedIndices[0] === -1 ? 'pre-song' : sortedIndices[0]}`
+					: `chunks_${sortedIndices[0] === -1 ? 'pre-song' : sortedIndices[0]}-${sortedIndices[sortedIndices.length - 1]}`;
 			const exportFilename = `${filename}_${rangeStr}.wav`;
-			
+
 			// Apply current BPM scaling (pitch shifts) using playbackRate to the combined buffer
 			const playbackRate = targetBPM / bpm;
 			await exportService.exportChunkGroup(audioBuffer, chunks, exportFilename, { playbackRate });
@@ -1575,7 +1651,6 @@
 		}
 	}
 </script>
-
 
 <div class="flex flex-col space-y-4">
 	<!-- Info Bar -->
@@ -1597,9 +1672,9 @@
 
 	<!-- Waveform Container with Virtualization -->
 	<div bind:this={waveformContainer} class="relative w-full">
-		<div 
+		<div
 			bind:this={scrollContainer}
-			class="overflow-y-auto w-full"
+			class="w-full overflow-y-auto"
 			style="height: 100vh; max-height: 100vh;"
 		>
 			<!-- Spacer for total height to maintain scrollbar -->
@@ -1626,8 +1701,12 @@
 									placeholderAnnotation={chunk.placeholderAnnotation}
 									isLooping={chunk.isLooping}
 									isActiveChunk={playheadInfo?.chunkIndex === chunk.index}
-									activeBarIndex={playheadInfo?.chunkIndex === chunk.index && activeBarInfo ? activeBarInfo.barIndex : -1}
-									activeBeatLineIndices={playheadInfo?.chunkIndex === chunk.index ? activeBeatLineIndices : undefined}
+									activeBarIndex={playheadInfo?.chunkIndex === chunk.index && activeBarInfo
+										? activeBarInfo.barIndex
+										: -1}
+									activeBeatLineIndices={playheadInfo?.chunkIndex === chunk.index
+										? activeBeatLineIndices
+										: undefined}
 									{waveformConfig}
 									{chunkDuration}
 									{beatOffset}
@@ -1641,23 +1720,27 @@
 									onMoveAnnotation={handleMoveAnnotation}
 									onDuplicateAnnotation={handleDuplicateAnnotation}
 									onGroupExport={handleGroupExport}
-									showGroupExportButton={loopingChunkIndices.size > 1 && chunk.isLooping && Array.from(loopingChunkIndices).sort((a, b) => a - b)[0] === chunk.index}
+									showGroupExportButton={loopingChunkIndices.size > 1 &&
+										chunk.isLooping &&
+										Array.from(loopingChunkIndices).sort((a, b) => a - b)[0] === chunk.index}
 									loopingChunkCount={loopingChunkIndices.size}
 									registerPlayheadLayer={createRegisterCallback(chunk.index)}
 									unregisterPlayheadLayer={createUnregisterCallback(chunk.index)}
 									{isAnnotationMode}
-									showBeatNumbers={showBeatNumbers}
+									{showBeatNumbers}
 									beatsPerLine={beatGrouping}
 								/>
 							{:else}
 								<!-- Render placeholder for non-visible chunk (shouldn't happen with virtualization, but kept for safety) -->
-								<div 
-									class="relative mb-0 bg-gray-900 rounded-lg overflow-hidden" 
+								<div
+									class="relative mb-0 overflow-hidden rounded-lg bg-gray-900"
 									data-chunk-index={chunk.index}
-									style="height: {waveformConfig.height + 40}px"
+									style="height: {waveformConfig.height + 24}px"
 								>
 									<!-- Minimal header -->
-									<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between">
+									<div
+										class="flex items-center justify-between bg-gray-800 px-3 py-2 text-sm text-gray-300"
+									>
 										<div>{chunk.headerInfo}</div>
 										<div class="text-xs text-gray-500">Loading...</div>
 									</div>
@@ -1680,7 +1763,7 @@
 	y={popupY}
 	startTimeMs={annotationStartTimeMs}
 	endTimeMs={annotationEndTimeMs}
-	editingAnnotation={editingAnnotation}
+	{editingAnnotation}
 	on:save={handleAnnotationSave}
 	on:cancel={handleAnnotationCancel}
 />

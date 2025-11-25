@@ -19,8 +19,17 @@
 		chunkIndex: number;
 		bounds: ChunkBounds;
 		isSpecialChunk: boolean;
-		waveformBars: Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean; annotationColors?: Array<{ color: string; startY: number; endY: number }> }>;
-		waveformBarsPerStem?: Array<Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }>>;
+		waveformBars: Array<{
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+			isEmpty?: boolean;
+			annotationColors?: Array<{ color: string; startY: number; endY: number }>;
+		}>;
+		waveformBarsPerStem?: Array<
+			Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }>
+		>;
 		stemColors?: string[];
 		stemEnabled?: boolean[];
 		beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }>;
@@ -98,7 +107,7 @@
 	// Canvas reference
 	let canvasElement: HTMLCanvasElement | undefined = $state();
 	let ctx: CanvasRenderingContext2D | null = $state(null);
-	
+
 	// Playhead overlay canvas (for smooth rAF updates)
 	let playheadCanvas: HTMLCanvasElement | undefined = $state();
 
@@ -109,11 +118,11 @@
 			ctx = canvasElement.getContext('2d');
 			redraw();
 		}
-		
+
 		if (playheadCanvas) {
 			setupHighDPICanvas(playheadCanvas, waveformConfig.width, waveformConfig.height);
 		}
-		
+
 		// Register playhead layer
 		if (registerPlayheadLayer) {
 			untrack(() => {
@@ -126,13 +135,13 @@
 	$effect(() => {
 		const width = waveformConfig.width;
 		const height = waveformConfig.height;
-		
+
 		if (canvasElement) {
 			setupHighDPICanvas(canvasElement, width, height);
 			// Re-get context after resize (context is scaled by setupHighDPICanvas)
 			ctx = canvasElement.getContext('2d');
 		}
-		
+
 		if (playheadCanvas) {
 			setupHighDPICanvas(playheadCanvas, width, height);
 		}
@@ -149,56 +158,58 @@
 	// Redraw function
 	function redraw() {
 		if (!ctx || !canvasElement) return;
-		
+
 		const width = waveformConfig.width;
 		const height = waveformConfig.height;
-		
+
 		// Clear canvas
 		ctx.clearRect(0, 0, width, height);
-		
+
 		// Draw background
 		ctx.fillStyle = '#111827'; // gray-900
 		ctx.fillRect(0, 0, width, height);
-		
+
 		if (isSpecialChunk) {
 			// Draw diagonal hatching for empty area
 			const offsetInSeconds = Math.abs(beatOffset) / 1000;
-			const emptyAreaWidth = beatOffset > 0
-				? (offsetInSeconds / chunkDuration) * width
-				: ((chunkDuration - offsetInSeconds) / chunkDuration) * width;
-			
+			const emptyAreaWidth =
+				beatOffset > 0
+					? (offsetInSeconds / chunkDuration) * width
+					: ((chunkDuration - offsetInSeconds) / chunkDuration) * width;
+
 			if (emptyAreaWidth > 0) {
 				drawDiagonalHatch(ctx, 0, 0, emptyAreaWidth, height);
 			}
-			
+
 			// Draw waveform bars
 			if (waveformBarsPerStem && waveformBarsPerStem.length > 0 && stemColors && stemEnabled) {
 				drawWaveformBars(ctx, waveformBars, waveformBarsPerStem, stemColors, stemEnabled);
 			} else {
 				drawWaveformBars(ctx, waveformBars);
 			}
-			
+
 			// Draw song start marker
-			const songStartX = beatOffset > 0
-				? (offsetInSeconds / chunkDuration) * width
-				: ((chunkDuration - offsetInSeconds) / chunkDuration) * width;
+			const songStartX =
+				beatOffset > 0
+					? (offsetInSeconds / chunkDuration) * width
+					: ((chunkDuration - offsetInSeconds) / chunkDuration) * width;
 			drawSongStartMarker(ctx, songStartX, height);
 		} else {
 			// Draw beat grid
 			drawBeatGrid(ctx, beatLines, height, activeBeatLineIndices);
-			
+
 			// Draw beat numbers if enabled
 			if (showBeatNumbers) {
 				drawBeatNumbers(ctx, beatsPerLine, width, height);
 			}
-			
+
 			// Draw waveform bars
 			if (waveformBarsPerStem && waveformBarsPerStem.length > 0 && stemColors && stemEnabled) {
 				drawWaveformBars(ctx, waveformBars, waveformBarsPerStem, stemColors, stemEnabled);
 			} else {
 				drawWaveformBars(ctx, waveformBars);
 			}
-			
+
 			// Draw active bar flash overlay
 			if (isActiveChunk && activeBarIndex >= 0 && activeBarIndex < waveformBars.length) {
 				const activeBar = waveformBars[activeBarIndex];
@@ -207,7 +218,7 @@
 				}
 			}
 		}
-		
+
 		// Draw placeholder annotation preview if visible in this chunk
 		if (placeholderAnnotation) {
 			const startX = timeToPixel(placeholderAnnotation.startTimeMs, bounds, width);
@@ -218,7 +229,8 @@
 				endX,
 				height,
 				placeholderAnnotation.color,
-				placeholderAnnotation.isPoint || placeholderAnnotation.startTimeMs === placeholderAnnotation.endTimeMs
+				placeholderAnnotation.isPoint ||
+					placeholderAnnotation.startTimeMs === placeholderAnnotation.endTimeMs
 			);
 		}
 	}
@@ -243,18 +255,18 @@
 		bounds; // Track bounds changes
 		showBeatNumbers; // Track beat numbers toggle
 		beatsPerLine; // Track beats per line for beat numbers
-		
+
 		redraw();
 	});
 
 	// Handle canvas mouse events
 	function handleCanvasMouseDown(event: MouseEvent) {
 		if (!canvasElement) return;
-		
+
 		// Calculate coordinate relative to canvas (accounting for DPR scaling)
 		const rect = canvasElement.getBoundingClientRect();
 		const x = event.clientX - rect.left;
-		
+
 		// Create a synthetic event that the handler expects
 		// The handler calls event.currentTarget.getBoundingClientRect(), so we need to provide that
 		const syntheticEvent = {
@@ -265,14 +277,14 @@
 			preventDefault: () => event.preventDefault(),
 			stopPropagation: () => event.stopPropagation()
 		} as MouseEvent;
-		
+
 		onWaveformMouseDown(syntheticEvent, chunkIndex, bounds);
 		event.preventDefault();
 	}
 
 	function handleCanvasTouchStart(event: TouchEvent) {
 		if (!canvasElement || event.touches.length === 0) return;
-		
+
 		// Create a synthetic event
 		const syntheticEvent = {
 			...event,
@@ -281,35 +293,46 @@
 			preventDefault: () => event.preventDefault(),
 			stopPropagation: () => event.stopPropagation()
 		} as TouchEvent;
-		
+
 		onWaveformTouchStart(syntheticEvent, chunkIndex, bounds);
 		event.preventDefault();
 	}
 </script>
 
-<div class="relative mb-0 bg-gray-900 overflow-hidden {isActiveChunk ? 'current-chunk' : ''}" data-chunk-index={chunkIndex}>
+<div
+	class="relative mb-0 overflow-hidden bg-gray-900 {isActiveChunk ? 'current-chunk' : ''}"
+	data-chunk-index={chunkIndex}
+>
 	<!-- Chunk Header -->
-	<div class="px-3 py-2 bg-gray-800 text-sm text-gray-300 flex items-center justify-between" style="touch-action: pan-y;">
-		<div>{headerInfo}</div>
-		<div class="flex items-center space-x-2">
+	<div
+		class="flex items-center justify-end bg-gray-800 py-1 pr-0 pl-2"
+		style="touch-action: pan-y;"
+	>
+		<div class="flex items-center">
 			<!-- Show group download button only on the first looping chunk -->
 			{#if showGroupExportButton && loopingChunkCount > 1}
 				<button
-					class="px-2 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded text-xs transition-colors"
+					class="rounded-l bg-gray-700 px-2 py-0.5 text-xs text-gray-300 transition-colors hover:bg-gray-600"
 					onclick={onGroupExport}
 				>
 					📦 ({loopingChunkCount})
 				</button>
 			{/if}
 			<button
-				class="px-2 py-1 rounded text-xs transition-colors {exportingChunk ? 'bg-gray-600 text-gray-400' : 'bg-green-600 hover:bg-green-700 text-white'}"
+				class="{showGroupExportButton && loopingChunkCount > 1
+					? ''
+					: 'rounded-l'} px-2 py-0.5 text-xs transition-colors {exportingChunk
+					? 'bg-gray-700 text-gray-400'
+					: 'bg-gray-700 text-gray-300 hover:bg-gray-600'}"
 				onclick={() => onChunkExport(chunkIndex, startTime, endTime)}
 				disabled={exportingChunk}
 			>
 				{exportingChunk ? '⏳' : '📥'}
 			</button>
 			<button
-				class="px-2 py-1 rounded text-xs transition-colors {isLooping ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}"
+				class="rounded-r px-2 py-0.5 text-xs transition-colors {isLooping
+					? 'bg-blue-600 text-white'
+					: 'bg-blue-700 text-blue-200 hover:bg-blue-600'}"
 				onclick={() => onToggleChunkLoop(chunkIndex, startTime, endTime)}
 			>
 				{isLooping ? '⏹️' : '🔁'}
@@ -323,21 +346,27 @@
 		<canvas
 			bind:this={canvasElement}
 			class="block cursor-crosshair"
-			style:touch-action={isAnnotationMode ? "none" : "pan-y"}
+			style:touch-action={isAnnotationMode ? 'none' : 'pan-y'}
 			onmousedown={handleCanvasMouseDown}
 			ontouchstart={handleCanvasTouchStart}
 		></canvas>
-		
+
 		<!-- Playhead overlay canvas (drawn by PlayheadAnimator via rAF) -->
 		<canvas
 			bind:this={playheadCanvas}
-			class="absolute top-0 left-0 pointer-events-none"
+			class="pointer-events-none absolute top-0 left-0"
 			style="width: {waveformConfig.width}px; height: {waveformConfig.height}px;"
 		></canvas>
 	</div>
 
 	<!-- Annotations for this chunk -->
-	<div class="absolute pointer-events-none" style:top="40px" style:left="0px" style:width="{waveformConfig.width}px" style:height="{waveformConfig.height}px">
+	<div
+		class="pointer-events-none absolute"
+		style:top="24px"
+		style:left="0px"
+		style:width="{waveformConfig.width}px"
+		style:height="{waveformConfig.height}px"
+	>
 		{#each annotations as annotation (annotation.id)}
 			<div class="pointer-events-auto">
 				<HtmlAnnotation
@@ -370,6 +399,4 @@
 			</div>
 		{/if}
 	</div>
-
 </div>
-
