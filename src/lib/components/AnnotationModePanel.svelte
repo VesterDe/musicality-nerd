@@ -68,7 +68,7 @@
 					class="sr-only"
 				/>
 				<div class="relative inline-block">
-					<div class="w-11 h-6 bg-gray-600 rounded-full shadow-inner transition-all duration-200 ease-in-out {isAnnotationMode ? 'bg-green-600 shadow-green-500/25' : 'bg-gray-600'}"></div>
+					<div class="w-11 h-6 rounded-full shadow-inner transition-all duration-200 ease-in-out {isAnnotationMode ? 'bg-green-600 shadow-green-500/25' : 'bg-gray-600'}"></div>
 					<div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md transform transition-all duration-200 ease-in-out {isAnnotationMode ? 'translate-x-5 bg-green-50' : 'translate-x-0'}"></div>
 					{#if isAnnotationMode}
 						<div class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full flex items-center justify-center">
@@ -148,7 +148,7 @@
 					class="sr-only"
 				/>
 				<div class="relative inline-block">
-					<div class="w-11 h-6 bg-gray-600 rounded-full shadow-inner transition-all duration-200 ease-in-out {isAnnotationMode ? 'bg-green-600 shadow-green-500/25' : 'bg-gray-600'}"></div>
+					<div class="w-11 h-6 rounded-full shadow-inner transition-all duration-200 ease-in-out {isAnnotationMode ? 'bg-green-600 shadow-green-500/25' : 'bg-gray-600'}"></div>
 					<div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md transform transition-all duration-200 ease-in-out {isAnnotationMode ? 'translate-x-5 bg-green-50' : 'translate-x-0'}"></div>
 					{#if isAnnotationMode}
 						<div class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full flex items-center justify-center">
