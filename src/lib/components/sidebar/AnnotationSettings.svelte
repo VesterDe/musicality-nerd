@@ -21,7 +21,7 @@
 	{#if sessionStore.currentSession?.annotations && sessionStore.currentSession.annotations.length > 0}
 		<div class="pt-3">
 			<button
-				class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-xs transition-colors"
+				class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-xs transition-colors cursor-pointer"
 				title="Clear all annotations"
 				onclick={async () => {
 					if (confirm('Are you sure you want to clear all annotations?')) {

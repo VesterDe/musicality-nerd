@@ -115,7 +115,7 @@
 					max="200"
 				/>
 				<button 
-					class="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-xs transition-colors"
+					class="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-xs transition-colors cursor-pointer"
 					onclick={recalculateBpmFromSong}
 					disabled={sessionStore.isDetectingBpm}
 					title="Recalculate BPM from audio"
@@ -131,7 +131,7 @@
 		<label for="target-bpm" class="text-sm font-medium text-gray-300 block">Practice BPM</label>
 		<div class="flex items-center gap-2">
 			<button 
-				class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+				class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm cursor-pointer"
 				onclick={decrementTargetBPM}
 			>
 				−
@@ -146,13 +146,13 @@
 				max="300"
 			/>
 			<button 
-				class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+				class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm cursor-pointer"
 				onclick={incrementTargetBPM}
 			>
 				+
 			</button>
 			<button 
-				class="px-3 py-1 bg-amber-600 hover:bg-amber-700 rounded text-sm"
+				class="px-3 py-1 bg-amber-600 hover:bg-amber-700 rounded text-sm cursor-pointer"
 				onclick={resetTargetBPM}
 				title="Reset to song BPM"
 			>
@@ -183,7 +183,7 @@
 				{#each sessionStore.currentSession.stems as stem, index}
 					<div class="flex items-center gap-2">
 						<button
-							class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 justify-between
+							class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 justify-between cursor-pointer
 								{stem.enabled 
 									? 'bg-blue-600 hover:bg-blue-700 text-white' 
 									: 'bg-gray-700 hover:bg-gray-600 text-gray-300'}"
@@ -211,7 +211,7 @@
 							</span>
 						</button>
 						<button
-							class="px-2 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition-colors flex-shrink-0"
+							class="px-2 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition-colors flex-shrink-0 cursor-pointer"
 							title="Download {stem.filename} (BPM-adjusted)"
 							onclick={() => handleStemDownload(index)}
 						>

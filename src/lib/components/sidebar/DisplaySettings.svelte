@@ -36,7 +36,7 @@
 			id="beats-per-line"
 			value={sessionStore.beatsPerLine}
 			onchange={(e) => handleBeatsPerLineChange(Number((e.target as HTMLSelectElement).value))}
-			class="w-full rounded bg-gray-700 px-3 py-1.5 text-sm text-white"
+			class="w-full cursor-pointer rounded bg-gray-700 px-3 py-1.5 text-sm text-white"
 		>
 			{#each beatsPerLineOptions as option}
 				<option value={option}>{option}</option>
@@ -56,7 +56,7 @@
 			id="rects-per-beat"
 			value={rectsPerBeatValue}
 			onchange={(e) => handleRectsPerBeatChange((e.target as HTMLSelectElement).value)}
-			class="w-full rounded bg-gray-700 px-3 py-1.5 text-sm text-white"
+			class="w-full cursor-pointer rounded bg-gray-700 px-3 py-1.5 text-sm text-white"
 		>
 			<option value="auto">Auto</option>
 			{#each rectsPerBeatManualOptions as option}

@@ -62,7 +62,7 @@
 		<!-- Info Bar -->
 		<div class="bg-gray-900 rounded-lg overflow-hidden">
 			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors cursor-pointer"
 				onclick={() => togglePanel('info')}
 			>
 				<span class="text-sm font-medium text-gray-200">Session Info</span>
@@ -85,7 +85,7 @@
 		<!-- Playback Settings -->
 		<div class="bg-gray-900 rounded-lg overflow-hidden">
 			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors cursor-pointer"
 				onclick={() => togglePanel('playback')}
 			>
 				<span class="text-sm font-medium text-gray-200">Playback Settings</span>
@@ -108,7 +108,7 @@
 		<!-- Beat Offset Settings -->
 		<div class="bg-gray-900 rounded-lg overflow-hidden">
 			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors cursor-pointer"
 				onclick={() => togglePanel('beatOffset')}
 			>
 				<span class="text-sm font-medium text-gray-200">Beat Offset</span>
@@ -131,7 +131,7 @@
 		<!-- Display Settings -->
 		<div class="bg-gray-900 rounded-lg overflow-hidden">
 			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors cursor-pointer"
 				onclick={() => togglePanel('display')}
 			>
 				<span class="text-sm font-medium text-gray-200">Display</span>
@@ -154,7 +154,7 @@
 		<!-- Annotation Settings -->
 		<div class="bg-gray-900 rounded-lg overflow-hidden">
 			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors cursor-pointer"
 				onclick={() => togglePanel('annotations')}
 			>
 				<span class="text-sm font-medium text-gray-200">Annotations</span>
@@ -177,7 +177,7 @@
 		<!-- Keyboard Shortcuts -->
 		<div class="bg-gray-900 rounded-lg overflow-hidden">
 			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors cursor-pointer"
 				onclick={() => togglePanel('keyboardShortcuts')}
 			>
 				<span class="text-sm font-medium text-gray-200">Keyboard Shortcuts</span>
