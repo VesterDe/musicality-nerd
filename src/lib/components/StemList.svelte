@@ -118,7 +118,7 @@
 
 	<!-- Drop Zone -->
 	<div 
-		class="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center transition-colors cursor-pointer
+		class="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center transition-colors
 			{isDragOver ? 'border-blue-400 bg-blue-400/10' : 'hover:border-gray-500'}"
 		role="button"
 		tabindex="0"
@@ -219,13 +219,13 @@
 					<!-- Actions -->
 					<div class="flex space-x-2">
 						<button
-							class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm font-medium transition-colors cursor-pointer"
+							class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm font-medium transition-colors"
 							onclick={() => onStemSessionSelected(session.id)}
 						>
 							Load Session
 						</button>
 						<button
-							class="bg-gray-700 hover:bg-red-600 text-gray-300 hover:text-white px-3 py-2 rounded text-sm transition-colors cursor-pointer"
+							class="bg-gray-700 hover:bg-red-600 text-gray-300 hover:text-white px-3 py-2 rounded text-sm transition-colors"
 							onclick={() => deleteStemSession(session.id, session.filename)}
 							title="Delete session"
 						>

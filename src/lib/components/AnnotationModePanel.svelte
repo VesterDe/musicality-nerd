@@ -115,7 +115,7 @@
 				<div class="flex space-x-1">
 					{#each presetColors as color}
 						<button
-							class="w-6 h-6 rounded border-2 transition-all {annotationTemplate.color === color ? 'border-white scale-110' : 'border-gray-600 hover:border-gray-400'} {isAnnotationMode ? 'cursor-pointer' : 'cursor-not-allowed'}"
+							class="w-6 h-6 rounded border-2 transition-all {annotationTemplate.color === color ? 'border-white scale-110' : 'border-gray-600 hover:border-gray-400'} {isAnnotationMode ? '' : 'cursor-not-allowed'}"
 							style="background-color: {color}"
 							onclick={() => isAnnotationMode && handleColorChange(color)}
 							disabled={!isAnnotationMode}

@@ -1264,7 +1264,7 @@
 			{#if sessionStore.currentSession}
 				<div class="flex items-center justify-between">
 					<button
-						class="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded-lg text-sm transition-colors cursor-pointer"
+						class="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded-lg text-sm transition-colors"
 						onclick={returnToSongList}
 					>
 						← Song List
@@ -1291,7 +1291,7 @@
 					</div>
 					<!-- Hamburger menu button (mobile only) -->
 					<button
-						class="lg:hidden bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition-colors cursor-pointer"
+						class="lg:hidden bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition-colors"
 						onclick={() => isSidebarOpen = !isSidebarOpen}
 						aria-label="Toggle sidebar"
 						aria-expanded={isSidebarOpen}
@@ -1325,7 +1325,7 @@
 			<div class="bg-gray-800 rounded-lg px-4 py-1.5 sticky top-0 z-10 shadow-lg border-b border-gray-700 backdrop-blur-sm">
 				<div class="flex items-center gap-2.5">
 					<button 
-						class="bg-blue-600 hover:bg-blue-700 p-1 rounded-full transition-colors flex-shrink-0 w-7 h-7 flex items-center justify-center cursor-pointer"
+						class="bg-blue-600 hover:bg-blue-700 p-1 rounded-full transition-colors flex-shrink-0 w-7 h-7 flex items-center justify-center"
 						title={sessionStore.isPlaying ? 'Pause' : 'Play'}
 						aria-label={sessionStore.isPlaying ? 'Pause' : 'Play'}
 						onclick={togglePlayback}
@@ -1504,7 +1504,7 @@
 					<div class="sticky top-0 bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between z-10">
 						<h2 class="text-lg font-semibold text-white">Settings</h2>
 						<button
-							class="p-2 rounded-lg hover:bg-gray-700 transition-colors cursor-pointer"
+							class="p-2 rounded-lg hover:bg-gray-700 transition-colors"
 							onclick={() => isSidebarOpen = false}
 							aria-label="Close sidebar"
 						>
