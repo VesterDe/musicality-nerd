@@ -42,6 +42,7 @@ export interface TrackSession {
 	rectsPerBeatMode?: 'auto' | number; // 'auto' for automatic selection between 8 and upper limit, or a number for manual value
 	mode?: 'single' | 'stem'; // Session mode - defaults to 'single' for backward compatibility
 	stems?: Stem[]; // Array of stems for stem mode sessions
+	rowHeight?: number; // Height of waveform rows in pixels (default: 96)
 }
 
 export interface SpectrogramConfig {

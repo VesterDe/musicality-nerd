@@ -84,7 +84,8 @@ export class PersistenceService {
 			annotations: [], // Initialize empty annotations array
 			targetBPM: 0, // Default target BPM (same as default BPM)
 			rectsPerBeatMode: 'auto', // Default to auto mode
-			mode: 'single' // Explicitly set single mode
+			mode: 'single', // Explicitly set single mode
+			rowHeight: 96 // Default row height in pixels
 		};
 
 		await this.saveSession(session);
@@ -133,7 +134,8 @@ export class PersistenceService {
 			targetBPM: 0, // Default target BPM (same as default BPM)
 			rectsPerBeatMode: 'auto', // Default to auto mode
 			mode: 'stem',
-			stems: stems
+			stems: stems,
+			rowHeight: 96 // Default row height in pixels
 		};
 
 		await this.saveSession(session);
@@ -187,7 +189,8 @@ export class PersistenceService {
 			targetBPM: 0, // Default target BPM (same as default BPM)
 			rectsPerBeatMode: 'auto', // Default to auto mode
 			mode: 'stem',
-			stems: stems
+			stems: stems,
+			rowHeight: 96 // Default row height in pixels
 		};
 
 		await this.saveSession(session);
@@ -342,6 +345,20 @@ export class PersistenceService {
 		}
 
 		session.rectsPerBeatMode = rectsPerBeatMode;
+		await this.saveSession(session);
+		return session;
+	}
+
+	/**
+	 * Update row height for waveform display
+	 */
+	async updateRowHeight(sessionId: string, rowHeight: number): Promise<TrackSession> {
+		const session = await this.loadSession(sessionId);
+		if (!session) {
+			throw new Error('Session not found');
+		}
+
+		session.rowHeight = rowHeight;
 		await this.saveSession(session);
 		return session;
 	}

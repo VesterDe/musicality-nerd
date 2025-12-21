@@ -21,6 +21,7 @@
 		audioEngine: AudioEngine;
 		beatOffset: number;
 		beatsPerLine: number;
+		rowHeight?: number;
 		isPlaying?: boolean;
 		rectsPerBeatMode?: 'auto' | number;
 		onChunkLoop?: (chunkIndex: number, startTime: number, endTime: number) => void;
@@ -55,6 +56,7 @@
 		audioEngine,
 		beatOffset = 0,
 		beatsPerLine = 16,
+		rowHeight = 96,
 		isPlaying = false,
 		rectsPerBeatMode = 'auto',
 		onChunkLoop,
@@ -493,7 +495,7 @@
 	const waveformConfig = $derived.by(
 		(): WaveformConfig => ({
 			width: containerWidth,
-			height: 96,
+			height: rowHeight,
 			sampleRate: audioSampleRate,
 			audioDuration,
 			beatOffset,
@@ -1674,7 +1676,7 @@
 	<div bind:this={waveformContainer} class="relative w-full">
 		<div
 			bind:this={scrollContainer}
-			class="w-full overflow-y-auto"
+			class="w-full overflow-y-auto scrollbar-hide"
 			style="height: 100vh; max-height: 100vh;"
 		>
 			<!-- Spacer for total height to maintain scrollbar -->

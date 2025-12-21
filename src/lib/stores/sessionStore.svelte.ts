@@ -18,6 +18,7 @@ export class SessionStore {
 	
 	// Display settings
 	beatsPerLine = $state(8);
+	rowHeight = $state(96);
 	autoFollow = $state(false);
 	showBeatNumbers = $state(false);
 	
@@ -139,10 +140,10 @@ export class SessionStore {
 	// Rectangles Per Beat Management
 	async updateRectsPerBeatMode(value: 'auto' | number) {
 		if (!this.currentSession || !this.persistenceService) return;
-		
+
 		try {
 			const updatedSession = await this.persistenceService.updateRectsPerBeatMode(
-				this.currentSession.id, 
+				this.currentSession.id,
 				value
 			);
 			this.currentSession = updatedSession;
@@ -150,7 +151,23 @@ export class SessionStore {
 			console.error('Failed to update rects per beat mode:', error);
 		}
 	}
-	
+
+	// Row Height Management
+	async updateRowHeight(value: number) {
+		if (!this.currentSession || !this.persistenceService) return;
+
+		try {
+			const updatedSession = await this.persistenceService.updateRowHeight(
+				this.currentSession.id,
+				value
+			);
+			this.currentSession = updatedSession;
+			this.rowHeight = value;
+		} catch (error) {
+			console.error('Failed to update row height:', error);
+		}
+	}
+
 	// Annotation Management
 	toggleAnnotationMode() {
 		this.isAnnotationMode = !this.isAnnotationMode;
@@ -187,6 +204,7 @@ export class SessionStore {
 		this.currentSession = session;
 		if (session) {
 			this.beatsPerLine = session.beatsPerLine || 8;
+			this.rowHeight = session.rowHeight ?? 96;
 		}
 	}
 	

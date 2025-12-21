@@ -20,6 +20,7 @@ export class AudioEngine {
 	// Stem mode support
 	private stemBuffers: AudioBuffer[] = [];
 	private stemSources: StemSource[] = [];
+	private stemEnabledStates: boolean[] = [];
 	private isStemMode = false;
 	
 	// Playback rate control
@@ -105,12 +106,16 @@ export class AudioEngine {
 		this.isStemMode = true;
 		this.stemBuffers = [];
 		this.stemSources = [];
+		this.stemEnabledStates = [];
 
 		try {
 			// Decode all buffers
 			this.stemBuffers = await Promise.all(
 				buffers.map(buffer => this.audioContext!.decodeAudioData(buffer))
 			);
+
+			// Initialize all stems as enabled by default
+			this.stemEnabledStates = this.stemBuffers.map(() => true);
 
 			// Use first stem as canonical buffer for duration/BPM detection
 			this.audioBuffer = this.stemBuffers[0];
@@ -258,10 +263,10 @@ export class AudioEngine {
 			
 			// Connect each stem's gain node to the mixer
 			gainNode.connect(mixerGain);
-			
-			// Set gain based on enabled state (stored in stemSources will be set by setStemEnabled)
-			// For now, assume all stems are enabled initially
-			gainNode.gain.value = 1.0;
+
+			// Set gain based on stored enabled state
+			const isEnabled = this.stemEnabledStates[i] ?? true;
+			gainNode.gain.value = isEnabled ? 1.0 : 0.0;
 
 			// Handle playback end - only trigger when all stems end
 			sourceNode.onended = () => {
@@ -283,7 +288,7 @@ export class AudioEngine {
 				this.stemSources.push({
 					sourceNode,
 					gainNode,
-					enabled: true
+					enabled: isEnabled
 				});
 			} catch (error) {
 				console.error(`Failed to start stem ${i}:`, error);
@@ -778,15 +783,22 @@ export class AudioEngine {
 	 * Set enabled state for a specific stem (by index)
 	 */
 	setStemEnabled(index: number, enabled: boolean): void {
-		if (!this.isStemMode || index < 0 || index >= this.stemSources.length) {
+		if (!this.isStemMode || index < 0) {
 			return;
 		}
 
-		const stemSource = this.stemSources[index];
-		if (stemSource) {
-			stemSource.enabled = enabled;
-			// Set gain to 0 when disabled, 1 when enabled
-			stemSource.gainNode.gain.value = enabled ? 1.0 : 0.0;
+		// Always update the stored state (works even when not playing)
+		if (index < this.stemEnabledStates.length) {
+			this.stemEnabledStates[index] = enabled;
+		}
+
+		// Also update the live source if it exists (when playing)
+		if (index < this.stemSources.length) {
+			const stemSource = this.stemSources[index];
+			if (stemSource) {
+				stemSource.enabled = enabled;
+				stemSource.gainNode.gain.value = enabled ? 1.0 : 0.0;
+			}
 		}
 	}
 

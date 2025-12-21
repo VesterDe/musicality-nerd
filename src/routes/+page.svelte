@@ -1318,7 +1318,7 @@
 	<!-- Main Content -->
 	<div class="{sessionStore.currentSession ? 'flex h-[calc(100vh-4rem)]' : 'max-w-7xl mx-auto p-4'}">
 		<!-- Main content area -->
-		<div class="{sessionStore.currentSession ? 'flex-1 p-4 space-y-6 overflow-y-auto' : 'space-y-6'}">
+		<div class="{sessionStore.currentSession ? 'flex-1 p-4 space-y-6 overflow-y-auto scrollbar-hide' : 'space-y-6'}">
 		
 		{#if sessionStore.currentSession}
 			<!-- Transport Controls -->
@@ -1369,12 +1369,16 @@
 					{audioEngine}
 					beatOffset={sessionStore.beatOffset}
 					beatsPerLine={sessionStore.currentSession.beatsPerLine}
+					rowHeight={sessionStore.rowHeight}
 					isPlaying={sessionStore.isPlaying}
 					rectsPerBeatMode={sessionStore.currentSession.rectsPerBeatMode ?? 'auto'}
 					onChunkLoop={handleChunkLoop}
 					onClearLoop={handleClearLoop}
 					{loopingChunkIndices}
-					onSeek={(time) => audioEngine.seekTo(time)}
+					onSeek={(time) => {
+						audioEngine.seekTo(time);
+						sessionStore.setCurrentTime(time);
+					}}
 					isAnnotationMode={sessionStore.isAnnotationMode}
 					annotations={previewAnnotation 
 						? [...(sessionStore.currentSession.annotations || []), previewAnnotation]
@@ -1557,4 +1561,5 @@
 		cursor: pointer;
 		border: 2px solid #1f2937;
 	}
+
 </style>
