@@ -1257,9 +1257,9 @@
   })
 </script>
 
-<main class="min-h-screen bg-gray-900 text-white">
+<main class="h-screen flex flex-col bg-gray-900 text-white overflow-hidden">
 	<!-- Header -->
-	<header class="bg-gray-800 border-b border-gray-700 px-4 py-2.5">
+	<header class="flex-shrink-0 bg-gray-800 border-b border-gray-700 px-4 py-2.5">
 		<div class="w-full">
 			{#if sessionStore.currentSession}
 				<div class="flex items-center justify-between">
@@ -1316,7 +1316,7 @@
 	</header>
 
 	<!-- Main Content -->
-	<div class="{sessionStore.currentSession ? 'flex h-[calc(100vh-4rem)]' : 'max-w-7xl mx-auto p-4'}">
+	<div class="{sessionStore.currentSession ? 'flex flex-1 min-h-0' : 'flex-1 max-w-7xl mx-auto p-4 overflow-y-auto'}">
 		<!-- Main content area -->
 		<div class="{sessionStore.currentSession ? 'flex-1 p-4 space-y-6 overflow-y-auto scrollbar-hide' : 'space-y-6'}">
 		
@@ -1529,7 +1529,7 @@
 	</div>
 	
 	<!-- Footer -->
-	<footer class="bg-gray-800 border-t border-gray-700 px-4 py-3 text-center">
+	<footer class="flex-shrink-0 bg-gray-800 border-t border-gray-700 px-4 py-3 text-center">
 		<p class="text-sm text-gray-400">
 			Made with ❤️ by <a href="https://vester.si/blog/me?utm_source=musicality-nerd" target="_blank" class="text-amber-500 hover:text-amber-400 transition-colors">Demjan</a>
 		</p>

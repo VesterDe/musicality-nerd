@@ -5,7 +5,7 @@ import type { PersistenceService } from '$lib/persistence/PersistenceService';
 export class SessionStore {
 	// Core session data
 	currentSession = $state<TrackSession | null>(null);
-	
+
 	// Audio state
 	bpm = $state(120);
 	targetBPM = $state(120);
@@ -15,13 +15,13 @@ export class SessionStore {
 	currentTime = $state(0);
 	duration = $state(0);
 	currentBeatIndex = $state(-1);
-	
+
 	// Display settings
 	beatsPerLine = $state(8);
 	rowHeight = $state(96);
 	autoFollow = $state(false);
 	showBeatNumbers = $state(false);
-	
+
 	// Annotation state
 	isAnnotationMode = $state(false);
 	annotationTemplate = $state({
@@ -29,11 +29,14 @@ export class SessionStore {
 		color: '#00ff00'
 	});
 	annotationCounter = $state(1);
-	
+
 	// UI state
 	isDetectingBpm = $state(false);
 	isSessionInitializing = $state(false);
-	
+
+	// Debounce timers
+	private rowHeightDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
 	// Service references (set by main page)
 	private audioEngine: AudioEngine | null = null;
 	private persistenceService: PersistenceService | null = null;
@@ -153,19 +156,27 @@ export class SessionStore {
 	}
 
 	// Row Height Management
-	async updateRowHeight(value: number) {
-		if (!this.currentSession || !this.persistenceService) return;
-
-		try {
-			const updatedSession = await this.persistenceService.updateRowHeight(
-				this.currentSession.id,
-				value
-			);
-			this.currentSession = updatedSession;
-			this.rowHeight = value;
-		} catch (error) {
-			console.error('Failed to update row height:', error);
+	updateRowHeight(value: number) {
+		// Update local state immediately for responsive UI
+		this.rowHeight = value;
+		if (this.currentSession) {
+			this.currentSession.rowHeight = value;
 		}
+
+		// Debounce persistence
+		if (this.rowHeightDebounceTimer) {
+			clearTimeout(this.rowHeightDebounceTimer);
+		}
+
+		this.rowHeightDebounceTimer = setTimeout(async () => {
+			if (!this.currentSession || !this.persistenceService) return;
+
+			try {
+				await this.persistenceService.updateRowHeight(this.currentSession.id, value);
+			} catch (error) {
+				console.error('Failed to persist row height:', error);
+			}
+		}, 300);
 	}
 
 	// Annotation Management

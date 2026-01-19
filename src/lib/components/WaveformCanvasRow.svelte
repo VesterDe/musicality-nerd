@@ -131,7 +131,7 @@
 		}
 	});
 
-	// Resize canvas when waveformConfig dimensions change (e.g., on window resize)
+	// Resize canvas when waveformConfig dimensions change (e.g., on window resize or rowHeight change)
 	$effect(() => {
 		const width = waveformConfig.width;
 		const height = waveformConfig.height;
@@ -144,6 +144,12 @@
 
 		if (playheadCanvas) {
 			setupHighDPICanvas(playheadCanvas, width, height);
+			// Re-register playhead layer so PlayheadAnimator gets the updated height
+			if (registerPlayheadLayer) {
+				untrack(() => {
+					registerPlayheadLayer(playheadCanvas || null);
+				});
+			}
 		}
 	});
 
@@ -357,46 +363,44 @@
 			class="pointer-events-none absolute top-0 left-0"
 			style="width: {waveformConfig.width}px; height: {waveformConfig.height}px;"
 		></canvas>
-	</div>
 
-	<!-- Annotations for this chunk -->
-	<div
-		class="pointer-events-none absolute"
-		style:top="24px"
-		style:left="0px"
-		style:width="{waveformConfig.width}px"
-		style:height="{waveformConfig.height}px"
-	>
-		{#each annotations as annotation (annotation.id)}
-			<div class="pointer-events-auto">
-				<HtmlAnnotation
-					{annotation}
-					chunkBounds={bounds}
-					chunkWidth={waveformConfig.width}
-					chunkHeight={waveformConfig.height}
-					{chunkIndex}
-					stackPosition={annotation.stackPosition || 0}
-					onEdit={onEditAnnotation}
-					onDelete={onDeleteAnnotation}
-					onMove={onMoveAnnotation}
-					onDuplicate={onDuplicateAnnotation}
-				/>
-			</div>
-		{/each}
+		<!-- Annotations for this chunk (inside canvas container for proper alignment) -->
+		<div
+			class="pointer-events-none absolute top-0 left-0"
+			style:width="{waveformConfig.width}px"
+			style:height="{waveformConfig.height}px"
+		>
+			{#each annotations as annotation (annotation.id)}
+				<div class="pointer-events-auto">
+					<HtmlAnnotation
+						{annotation}
+						chunkBounds={bounds}
+						chunkWidth={waveformConfig.width}
+						chunkHeight={waveformConfig.height}
+						{chunkIndex}
+						stackPosition={annotation.stackPosition || 0}
+						onEdit={onEditAnnotation}
+						onDelete={onDeleteAnnotation}
+						onMove={onMoveAnnotation}
+						onDuplicate={onDuplicateAnnotation}
+					/>
+				</div>
+			{/each}
 
-		<!-- Placeholder annotation if visible in this chunk -->
-		{#if placeholderAnnotation}
-			<div class="pointer-events-none opacity-60">
-				<HtmlAnnotation
-					annotation={placeholderAnnotation}
-					chunkBounds={bounds}
-					chunkWidth={waveformConfig.width}
-					chunkHeight={waveformConfig.height}
-					{chunkIndex}
-					stackPosition={placeholderAnnotation.stackPosition || 0}
-					isPlaceholder={true}
-				/>
-			</div>
-		{/if}
+			<!-- Placeholder annotation if visible in this chunk -->
+			{#if placeholderAnnotation}
+				<div class="pointer-events-none opacity-60">
+					<HtmlAnnotation
+						annotation={placeholderAnnotation}
+						chunkBounds={bounds}
+						chunkWidth={waveformConfig.width}
+						chunkHeight={waveformConfig.height}
+						{chunkIndex}
+						stackPosition={placeholderAnnotation.stackPosition || 0}
+						isPlaceholder={true}
+					/>
+				</div>
+			{/if}
+		</div>
 	</div>
 </div>

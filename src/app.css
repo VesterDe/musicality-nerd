@@ -1,6 +1,10 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
 
+html {
+	overflow: hidden;
+}
+
 .scrollbar-hide {
 	-ms-overflow-style: none;
 	scrollbar-width: none;
