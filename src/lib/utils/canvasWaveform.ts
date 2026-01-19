@@ -115,12 +115,13 @@ export function drawBeatNumbers(
 	
 	const beatWidth = width / beatsPerLine;
 	const padding = 2; // Small padding from top-left corner
-	
-	for (let i = 0; i < beatsPerLine; i++) {
-		const beatNumber = (i % 4) + 1; // Cycle 1, 2, 3, 4
+
+	// Display beat numbers every 2 beats (half as many markers)
+	for (let i = 0; i < beatsPerLine; i += 2) {
+		const beatNumber = ((i / 2) % 4) + 1; // Cycle 1, 2, 3, 4
 		const x = i * beatWidth + padding;
 		const y = padding;
-		
+
 		ctx.fillText(String(beatNumber), x, y);
 	}
 	

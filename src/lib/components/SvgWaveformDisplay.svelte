@@ -94,7 +94,7 @@
 	// Virtualization state - scroll-based
 	let scrollContainer: HTMLDivElement | undefined = $state();
 	let scrollTop = $state(0);
-	let viewportHeight = $state(0);
+	let viewportHeight = $state(typeof window !== 'undefined' ? window.innerHeight : 800);
 	const OVERSCAN_CHUNKS = 2; // Number of chunks to render outside viewport
 	let rafId: number | null = null;
 
@@ -125,6 +125,18 @@
 	let touchStartTime = $state(0);
 	let isTouchDrag = $state(false);
 	const TOUCH_MOVE_THRESHOLD = 10; // pixels - if touch moves more than this, consider it a scroll
+
+	// Cross-row annotation drag state
+	let isDraggingAnnotation = $state(false);
+	let draggingAnnotationId = $state<string | null>(null);
+	let dragAnnotationSourceChunk = $state<number | null>(null);
+	let dragAnnotationOriginalTimes = $state<{ startTimeMs: number; endTimeMs: number } | null>(null);
+	let dragAnnotationPreviewTimeMs = $state<number | null>(null);
+	let dragAnnotationCurrentChunk = $state<number | null>(null);
+	let dragAnnotationDuration = $state<number>(0);
+	let isDragCopyOperation = $state(false);
+	let dragAnnotationLabel = $state<string>('');
+	let dragAnnotationColor = $state<string>('#ff5500');
 
 	// Placeholder annotation state
 	let showPlaceholder = $state(false);
@@ -602,16 +614,10 @@
 		// OPTIMIZATION: Only process chunks that are visible or in buffer zone
 		// We still need metadata for all chunks for scrolling/virtualization, but we only
 		// generate expensive waveform bars for visible chunks
+		// NOTE: Annotations are NOT passed here to avoid re-rendering waveforms when annotation visibility changes
 		for (const meta of chunkMetadata) {
 			// Check if chunk should be rendered (visible or in buffer zone)
 			const shouldRenderContent = isChunkInRenderRange(meta.index);
-
-			// Get annotations for this chunk (lightweight - we'll pass to bar generation)
-			const chunkAnnotations = annotations.filter(
-				(annotation) =>
-					annotation.startTimeMs < meta.bounds.endTimeMs &&
-					annotation.endTimeMs > meta.bounds.startTimeMs
-			);
 
 			// Generate waveform data only for visible chunks
 			let waveformBars: Array<{
@@ -645,8 +651,7 @@
 								targetBars,
 								meta.index,
 								beatOffset,
-								chunkDuration,
-								chunkAnnotations
+								chunkDuration
 							);
 						});
 					} else {
@@ -664,8 +669,7 @@
 								targetBars,
 								meta.index,
 								beatOffset,
-								chunkDuration,
-								chunkAnnotations
+								chunkDuration
 							);
 						});
 
@@ -691,8 +695,7 @@
 							targetBars,
 							meta.index,
 							beatOffset,
-							chunkDuration,
-							chunkAnnotations
+							chunkDuration
 						);
 					} else {
 						// Generate beat grid
@@ -707,8 +710,7 @@
 							targetBars,
 							meta.index,
 							beatOffset,
-							chunkDuration,
-							chunkAnnotations
+							chunkDuration
 						);
 
 						const startTime = meta.bounds.startTimeMs / 1000;
@@ -1502,6 +1504,156 @@
 		});
 	}
 
+	// Cross-row annotation drag handlers
+	function handleAnnotationDragStart(
+		annotationId: string,
+		annotation: Annotation,
+		chunkIndex: number,
+		clientX: number,
+		clientY: number,
+		isCopy: boolean = false
+	) {
+		isDraggingAnnotation = true;
+		draggingAnnotationId = annotationId;
+		dragAnnotationSourceChunk = chunkIndex;
+		dragAnnotationOriginalTimes = {
+			startTimeMs: annotation.startTimeMs,
+			endTimeMs: annotation.endTimeMs
+		};
+		dragAnnotationDuration = annotation.endTimeMs - annotation.startTimeMs;
+		dragAnnotationCurrentChunk = chunkIndex;
+		dragAnnotationPreviewTimeMs = annotation.startTimeMs;
+		isDragCopyOperation = isCopy;
+		dragAnnotationLabel = annotation.label || '';
+		dragAnnotationColor = annotation.color || '#ff5500';
+		lastPointerClientX = clientX;
+		lastPointerClientY = clientY;
+
+		// Add global mouse handlers
+		document.addEventListener('mousemove', handleAnnotationDragMove);
+		document.addEventListener('mouseup', handleAnnotationDragEnd);
+		document.addEventListener('touchmove', handleAnnotationDragTouchMove, { passive: false });
+		document.addEventListener('touchend', handleAnnotationDragTouchEnd);
+		document.addEventListener('touchcancel', handleAnnotationDragTouchEnd);
+	}
+
+	function handleAnnotationDragMove(event: MouseEvent) {
+		if (!isDraggingAnnotation) return;
+
+		// Find which chunk we're over using elementFromPoint
+		const chunkElement = document
+			.elementFromPoint(event.clientX, event.clientY)
+			?.closest('[data-chunk-index]');
+
+		if (chunkElement) {
+			const chunkIndex = parseInt(chunkElement.getAttribute('data-chunk-index') || '0');
+			const canvas = chunkElement.querySelector('canvas');
+
+			if (canvas) {
+				const rect = canvas.getBoundingClientRect();
+				const x = event.clientX - rect.left;
+				const bounds = calculateChunkBounds(chunkIndex, waveformConfig);
+
+				// Calculate new start time based on mouse position
+				const newStartTimeMs = pixelToTime(x, bounds, waveformConfig.width);
+				// Snap to 25ms
+				const snappedStartTime = Math.round(newStartTimeMs / 25) * 25;
+
+				dragAnnotationCurrentChunk = chunkIndex;
+				dragAnnotationPreviewTimeMs = Math.max(0, snappedStartTime);
+			}
+		}
+
+		lastPointerClientX = event.clientX;
+		lastPointerClientY = event.clientY;
+	}
+
+	function handleAnnotationDragTouchMove(event: TouchEvent) {
+		if (!isDraggingAnnotation) return;
+		if (event.touches.length === 0) return;
+
+		const touch = event.touches[0];
+
+		// Find which chunk we're over
+		const chunkElement = document
+			.elementFromPoint(touch.clientX, touch.clientY)
+			?.closest('[data-chunk-index]');
+
+		if (chunkElement) {
+			const chunkIndex = parseInt(chunkElement.getAttribute('data-chunk-index') || '0');
+			const canvas = chunkElement.querySelector('canvas');
+
+			if (canvas) {
+				const rect = canvas.getBoundingClientRect();
+				const x = touch.clientX - rect.left;
+				const bounds = calculateChunkBounds(chunkIndex, waveformConfig);
+
+				const newStartTimeMs = pixelToTime(x, bounds, waveformConfig.width);
+				const snappedStartTime = Math.round(newStartTimeMs / 25) * 25;
+
+				dragAnnotationCurrentChunk = chunkIndex;
+				dragAnnotationPreviewTimeMs = Math.max(0, snappedStartTime);
+			}
+		}
+
+		lastPointerClientX = touch.clientX;
+		lastPointerClientY = touch.clientY;
+		event.preventDefault();
+	}
+
+	function handleAnnotationDragEnd() {
+		if (!isDraggingAnnotation || !draggingAnnotationId || dragAnnotationPreviewTimeMs === null) {
+			cleanupAnnotationDrag();
+			return;
+		}
+
+		const newStartTimeMs = dragAnnotationPreviewTimeMs;
+		const newEndTimeMs = newStartTimeMs + dragAnnotationDuration;
+		const isPoint = dragAnnotationDuration === 0;
+
+		if (isDragCopyOperation) {
+			// Create a copy at the new position
+			onAnnotationCreated?.(
+				newStartTimeMs,
+				newEndTimeMs,
+				dragAnnotationLabel,
+				dragAnnotationColor,
+				isPoint
+			);
+		} else {
+			// Move the existing annotation
+			onAnnotationUpdated?.(draggingAnnotationId, {
+				startTimeMs: newStartTimeMs,
+				endTimeMs: newEndTimeMs
+			});
+		}
+
+		cleanupAnnotationDrag();
+	}
+
+	function handleAnnotationDragTouchEnd() {
+		handleAnnotationDragEnd();
+	}
+
+	function cleanupAnnotationDrag() {
+		isDraggingAnnotation = false;
+		draggingAnnotationId = null;
+		dragAnnotationSourceChunk = null;
+		dragAnnotationOriginalTimes = null;
+		dragAnnotationPreviewTimeMs = null;
+		dragAnnotationCurrentChunk = null;
+		dragAnnotationDuration = 0;
+		isDragCopyOperation = false;
+		dragAnnotationLabel = '';
+		dragAnnotationColor = '#ff5500';
+
+		document.removeEventListener('mousemove', handleAnnotationDragMove);
+		document.removeEventListener('mouseup', handleAnnotationDragEnd);
+		document.removeEventListener('touchmove', handleAnnotationDragTouchMove);
+		document.removeEventListener('touchend', handleAnnotationDragTouchEnd);
+		document.removeEventListener('touchcancel', handleAnnotationDragTouchEnd);
+	}
+
 	function handleDuplicateAnnotation(annotation: any) {
 		// Calculate the duration of the annotation
 		const duration = annotation.endTimeMs - annotation.startTimeMs;
@@ -1673,14 +1825,14 @@
 	</div> -->
 
 	<!-- Waveform Container with Virtualization -->
-	<div bind:this={waveformContainer} class="relative w-full">
+	<div bind:this={waveformContainer} class="relative w-full" style="min-height: 100vh;">
 		<div
 			bind:this={scrollContainer}
 			class="w-full overflow-y-auto scrollbar-hide"
-			style="height: 100vh; max-height: 100vh;"
+			style="height: 100vh; max-height: 100vh; overflow-anchor: none;"
 		>
-			<!-- Spacer for total height to maintain scrollbar -->
-			<div style="height: {chunkMetadata.length * chunkHeight}px; position: relative;">
+			<!-- Spacer for total height to maintain scrollbar - uses fixed height based on total chunks -->
+			<div style="height: {chunkMetadata.length * chunkHeight}px; min-height: 100vh; position: relative;">
 				<!-- Visible chunks positioned with transform -->
 				<div style="position: absolute; top: {virtualWindow.offsetTop}px; left: 0; right: 0;">
 					<div class="space-y-2">
@@ -1731,6 +1883,18 @@
 									{isAnnotationMode}
 									{showBeatNumbers}
 									beatsPerLine={beatGrouping}
+									onAnnotationDragStart={handleAnnotationDragStart}
+									{isDraggingAnnotation}
+									{draggingAnnotationId}
+									{isDragCopyOperation}
+									dragAnnotationPreviewStartTimeMs={dragAnnotationPreviewTimeMs}
+									dragAnnotationPreviewEndTimeMs={dragAnnotationPreviewTimeMs !== null
+										? dragAnnotationPreviewTimeMs + dragAnnotationDuration
+										: null}
+									isDragTarget={isDraggingAnnotation && dragAnnotationCurrentChunk === chunk.index}
+									dragAnnotationColor={draggingAnnotationId
+										? annotations.find((a) => a.id === draggingAnnotationId)?.color || '#ff5500'
+										: '#ff5500'}
 								/>
 							{:else}
 								<!-- Render placeholder for non-visible chunk (shouldn't happen with virtualization, but kept for safety) -->

@@ -62,6 +62,22 @@
 		isAnnotationMode?: boolean;
 		showBeatNumbers?: boolean;
 		beatsPerLine?: number;
+		// Cross-row annotation drag props
+		onAnnotationDragStart?: (
+			annotationId: string,
+			annotation: Annotation,
+			chunkIndex: number,
+			clientX: number,
+			clientY: number,
+			isCopy?: boolean
+		) => void;
+		isDraggingAnnotation?: boolean;
+		draggingAnnotationId?: string | null;
+		isDragCopyOperation?: boolean;
+		dragAnnotationPreviewStartTimeMs?: number | null;
+		dragAnnotationPreviewEndTimeMs?: number | null;
+		isDragTarget?: boolean;
+		dragAnnotationColor?: string;
 	}
 
 	let {
@@ -101,7 +117,15 @@
 		unregisterPlayheadLayer,
 		isAnnotationMode = false,
 		showBeatNumbers = false,
-		beatsPerLine = 8
+		beatsPerLine = 8,
+		onAnnotationDragStart,
+		isDraggingAnnotation = false,
+		draggingAnnotationId = null,
+		isDragCopyOperation = false,
+		dragAnnotationPreviewStartTimeMs = null,
+		dragAnnotationPreviewEndTimeMs = null,
+		isDragTarget = false,
+		dragAnnotationColor = '#ff5500'
 	}: Props = $props();
 
 	// Canvas reference
@@ -383,9 +407,28 @@
 						onDelete={onDeleteAnnotation}
 						onMove={onMoveAnnotation}
 						onDuplicate={onDuplicateAnnotation}
+						{onAnnotationDragStart}
+						isBeingDraggedCrossRow={isDraggingAnnotation && draggingAnnotationId === annotation.id && !isDragCopyOperation}
 					/>
 				</div>
 			{/each}
+
+			<!-- Cross-row drag ghost preview when this chunk is the drag target -->
+			{#if isDragTarget && dragAnnotationPreviewStartTimeMs !== null && dragAnnotationPreviewEndTimeMs !== null}
+				{@const previewStartX = timeToPixel(dragAnnotationPreviewStartTimeMs, bounds, waveformConfig.width)}
+				{@const previewEndX = timeToPixel(dragAnnotationPreviewEndTimeMs, bounds, waveformConfig.width)}
+				{@const previewWidth = Math.max(12, previewEndX - previewStartX)}
+				<div
+					class="pointer-events-none absolute border-r-2 border-l-2 border-dashed"
+					style:left="{previewStartX}px"
+					style:top="0"
+					style:width="{previewWidth}px"
+					style:height="{waveformConfig.height}px"
+					style:background-color={dragAnnotationColor}
+					style:opacity="0.4"
+					style:border-color={dragAnnotationColor}
+				></div>
+			{/if}
 
 			<!-- Placeholder annotation if visible in this chunk -->
 			{#if placeholderAnnotation}

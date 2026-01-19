@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { getColorName, isColorName } from '$lib/utils/colorNames';
+
 	interface Props {
 		isAnnotationMode: boolean;
 		onToggle: () => void;
@@ -11,9 +13,9 @@
 		horizontal?: boolean;
 	}
 
-	let { 
-		isAnnotationMode, 
-		onToggle, 
+	let {
+		isAnnotationMode,
+		onToggle,
 		annotationTemplate,
 		onTemplateChange,
 		annotationCount,
@@ -28,8 +30,11 @@
 		'#ff00ff', // Magenta
 		'#00ffff', // Cyan
 		'#ff8000', // Orange
-		'#ff0080', // Pink
+		'#ff0080' // Pink
 	];
+
+	// Display name for preview: use template name if set, otherwise use color name
+	let displayName = $derived(annotationTemplate.name || getColorName(annotationTemplate.color));
 
 	function handleNameChange(event: Event) {
 		const target = event.target as HTMLInputElement;
@@ -40,16 +45,22 @@
 	}
 
 	function handleColorChange(color: string) {
+		// If name is empty or was a color name, keep it empty so it auto-uses the new color name
+		const currentName = annotationTemplate.name;
+		const shouldKeepEmpty = !currentName || isColorName(currentName);
 		onTemplateChange({
-			...annotationTemplate,
+			name: shouldKeepEmpty ? '' : currentName,
 			color
 		});
 	}
 
 	function handleCustomColorChange(event: Event) {
 		const target = event.target as HTMLInputElement;
+		// For custom colors, keep the current name behavior
+		const currentName = annotationTemplate.name;
+		const shouldKeepEmpty = !currentName || isColorName(currentName);
 		onTemplateChange({
-			...annotationTemplate,
+			name: shouldKeepEmpty ? '' : currentName,
 			color: target.value
 		});
 	}
@@ -60,13 +71,13 @@
 	<div class="flex items-center gap-6">
 		<div class="flex items-center gap-3">
 			<h3 class="text-sm font-semibold text-gray-300">Annotation Mode</h3>
-			<label class="flex items-center space-x-3 cursor-pointer select-none">
-				<input 
-					type="checkbox" 
-					checked={isAnnotationMode}
-					onchange={onToggle}
-					class="sr-only"
-				/>
+			<button
+				type="button"
+				class="flex items-center space-x-3 cursor-pointer select-none"
+				onclick={onToggle}
+				aria-pressed={isAnnotationMode}
+				aria-label="Toggle annotation mode"
+			>
 				<div class="relative inline-block">
 					<div class="w-11 h-6 rounded-full shadow-inner transition-all duration-200 ease-in-out {isAnnotationMode ? 'bg-green-600 shadow-green-500/25' : 'bg-gray-600'}"></div>
 					<div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md transform transition-all duration-200 ease-in-out {isAnnotationMode ? 'translate-x-5 bg-green-50' : 'translate-x-0'}"></div>
@@ -79,7 +90,7 @@
 				<span class="text-xs {isAnnotationMode ? 'text-green-400' : 'text-gray-500'} transition-colors duration-200">
 					{isAnnotationMode ? 'ON' : 'OFF'}
 				</span>
-			</label>
+			</button>
 		</div>
 
 		<div class="h-8 w-px bg-gray-700"></div>
@@ -102,7 +113,7 @@
 					class="bg-gray-700 text-white text-sm px-3 py-1 rounded border border-gray-600 {isAnnotationMode ? 'focus:border-green-500' : 'cursor-not-allowed'} focus:outline-none w-32"
 				/>
 				<span class="text-xs text-gray-500">
-					Next: {annotationTemplate.name} {annotationCount}
+					Next: {displayName} {annotationCount}
 				</span>
 			</label>
 		</div>
@@ -140,13 +151,13 @@
 	<div class="{horizontal ? '' : 'bg-gray-800 rounded-lg p-4'} space-y-3">
 		<div class="flex items-center justify-between">
 			<h3 class="text-sm font-semibold text-gray-300">Annotation Mode</h3>
-			<label class="flex items-center space-x-3 cursor-pointer select-none">
-				<input 
-					type="checkbox" 
-					checked={isAnnotationMode}
-					onchange={onToggle}
-					class="sr-only"
-				/>
+			<button
+				type="button"
+				class="flex items-center space-x-3 cursor-pointer select-none"
+				onclick={onToggle}
+				aria-pressed={isAnnotationMode}
+				aria-label="Toggle annotation mode"
+			>
 				<div class="relative inline-block">
 					<div class="w-11 h-6 rounded-full shadow-inner transition-all duration-200 ease-in-out {isAnnotationMode ? 'bg-green-600 shadow-green-500/25' : 'bg-gray-600'}"></div>
 					<div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md transform transition-all duration-200 ease-in-out {isAnnotationMode ? 'translate-x-5 bg-green-50' : 'translate-x-0'}"></div>
@@ -159,7 +170,7 @@
 				<span class="text-xs {isAnnotationMode ? 'text-green-400' : 'text-gray-500'} transition-colors duration-200">
 					{isAnnotationMode ? 'ON' : 'OFF'}
 				</span>
-			</label>
+			</button>
 		</div>
 
 		{#if !horizontal}
@@ -180,7 +191,7 @@
 							class="mt-1 w-full bg-gray-700 text-white text-sm px-3 py-1.5 rounded border border-gray-600 {isAnnotationMode ? 'focus:border-green-500' : 'cursor-not-allowed'} focus:outline-none"
 						/>
 						<span class="text-xs text-gray-500">
-							Next: {annotationTemplate.name} {annotationCount}
+							Next: {displayName} {annotationCount}
 						</span>
 					</label>
 

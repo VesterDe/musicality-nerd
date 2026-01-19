@@ -1,8 +1,11 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
 
-html {
+html,
+body {
 	overflow: hidden;
+	height: 100%;
+	max-height: 100%;
 }
 
 .scrollbar-hide {

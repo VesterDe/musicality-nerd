@@ -94,39 +94,37 @@
 
 	<!-- Auto-follow Toggle -->
 	<div class="space-y-2">
-		<label class="flex items-center justify-between cursor-pointer">
+		<button
+			type="button"
+			class="flex items-center justify-between cursor-pointer w-full"
+			onclick={() => sessionStore.toggleAutoFollow()}
+			aria-pressed={autoFollow}
+		>
 			<span class="text-sm font-medium text-gray-300">Auto-follow Playback</span>
 			<div class="relative">
-				<input
-					type="checkbox"
-					checked={autoFollow}
-					onchange={() => sessionStore.toggleAutoFollow()}
-					class="sr-only"
-				/>
 				<div class="w-10 h-5 rounded-full shadow-inner transition-all duration-200 {autoFollow ? 'bg-blue-600' : 'bg-gray-600'}"></div>
 				<div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow-md transform transition-all duration-200 {autoFollow ? 'translate-x-5' : 'translate-x-0'}"></div>
 			</div>
-		</label>
+		</button>
 		<p class="text-xs text-gray-400">
 			Automatically scroll to follow the current playback position
 		</p>
 	</div>
-	
+
 	<!-- Show Beat Numbers Toggle -->
 	<div class="space-y-2">
-		<label class="flex items-center justify-between cursor-pointer">
+		<button
+			type="button"
+			class="flex items-center justify-between cursor-pointer w-full"
+			onclick={() => sessionStore.toggleShowBeatNumbers()}
+			aria-pressed={showBeatNumbers}
+		>
 			<span class="text-sm font-medium text-gray-300">Show Beat Numbers</span>
 			<div class="relative">
-				<input
-					type="checkbox"
-					checked={showBeatNumbers}
-					onchange={() => sessionStore.toggleShowBeatNumbers()}
-					class="sr-only"
-				/>
 				<div class="w-10 h-5 rounded-full shadow-inner transition-all duration-200 {showBeatNumbers ? 'bg-blue-600' : 'bg-gray-600'}"></div>
 				<div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow-md transform transition-all duration-200 {showBeatNumbers ? 'translate-x-5' : 'translate-x-0'}"></div>
 			</div>
-		</label>
+		</button>
 		<p class="text-xs text-gray-400">
 			Display beat numbers (1-4) in the top-left of each beat area
 		</p>

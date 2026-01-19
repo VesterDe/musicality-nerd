@@ -11,6 +11,7 @@
 	import Sidebar from '$lib/components/sidebar/Sidebar.svelte';
 	import { stemExtractor } from '$lib/utils/stemExtractor';
 	import { detectBpmWithStemFallback } from '$lib/utils/bpmDetection';
+	import { getColorName } from '$lib/utils/colorNames';
 	import type { TrackSession, Annotation } from '$lib/types';
 	let { data } = $props();
 
@@ -645,11 +646,14 @@
 						if (isAKeyPressed && activeAnnotationSession) {
 							// Create preview annotation
 							const snappedStartTime = Math.round(startTimeMs / 25) * 25;
+							// Use color name for auto-naming if template name is empty
+							const colorName = sessionStore.annotationTemplate.name || getColorName(sessionStore.annotationTemplate.color);
+							const counter = sessionStore.getNextCounterForColor(sessionStore.annotationTemplate.color);
 							previewAnnotation = {
 								id: `preview-${sessionId}`,
 								startTimeMs: snappedStartTime,
 								endTimeMs: snappedStartTime, // Will be updated by effect
-								label: `${sessionStore.annotationTemplate.name} ${sessionStore.annotationCounter}`,
+								label: `${colorName} ${counter}`,
 								color: sessionStore.annotationTemplate.color,
 								isPoint: false
 							};
@@ -685,17 +689,23 @@
 			if (isAKeyPressed && activeAnnotationSession) {
 				const endTime = sessionStore.currentTime * 1000; // Convert to milliseconds
 				const duration = endTime - activeAnnotationSession.startTime;
-				
+
 				// Determine if it's a point or range annotation
 				const isPoint = duration < 150; // Match the preview timeout duration
-				
-				// Use existing preview annotation name if it exists, otherwise create new counter
-				const annotationName = previewAnnotation 
-					? previewAnnotation.label 
-					: `${sessionStore.annotationTemplate.name} ${sessionStore.annotationCounter}`;
-				
-				// Always increment counter after using it
-				sessionStore.incrementAnnotationCounter();
+
+				// Use existing preview annotation name if it exists, otherwise create new name
+				let annotationName: string;
+				if (previewAnnotation) {
+					annotationName = previewAnnotation.label;
+				} else {
+					// Use color name for auto-naming if template name is empty
+					const colorName = sessionStore.annotationTemplate.name || getColorName(sessionStore.annotationTemplate.color);
+					const counter = sessionStore.getNextCounterForColor(sessionStore.annotationTemplate.color);
+					annotationName = `${colorName} ${counter}`;
+				}
+
+				// Always increment the color-specific counter after using it
+				sessionStore.incrementCounterForColor(sessionStore.annotationTemplate.color);
 				
 				if (sessionStore.currentSession) {
 					// Use template color
@@ -1380,9 +1390,9 @@
 						sessionStore.setCurrentTime(time);
 					}}
 					isAnnotationMode={sessionStore.isAnnotationMode}
-					annotations={previewAnnotation 
-						? [...(sessionStore.currentSession.annotations || []), previewAnnotation]
-						: (sessionStore.currentSession.annotations || [])}
+					annotations={previewAnnotation
+						? [...sessionStore.visibleAnnotations, previewAnnotation]
+						: sessionStore.visibleAnnotations}
 					onAnnotationCreated={handleAnnotationCreatedFromCanvas}
 					onAnnotationUpdated={handleAnnotationUpdated}
 					onAnnotationDeleted={handleAnnotationDeleted}
