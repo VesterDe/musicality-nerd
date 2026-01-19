@@ -548,6 +548,42 @@ export class PersistenceService {
 	}
 
 	/**
+	 * Bulk update annotations by a filter function
+	 * @param sessionId - The session ID
+	 * @param filter - Function to determine which annotations to update
+	 * @param updates - Updates to apply to matching annotations
+	 */
+	async updateAnnotationsBulk(
+		sessionId: string,
+		filter: (annotation: Annotation) => boolean,
+		updates: Partial<Omit<Annotation, 'id'>>
+	): Promise<TrackSession> {
+		const session = await this.loadSession(sessionId);
+		if (!session) {
+			throw new Error('Session not found');
+		}
+
+		if (!session.annotations) {
+			session.annotations = [];
+		}
+
+		// Apply updates to all matching annotations
+		for (const annotation of session.annotations) {
+			if (filter(annotation)) {
+				if (updates.label !== undefined) {
+					annotation.label = updates.label;
+				}
+				if (updates.color !== undefined) {
+					annotation.color = updates.color;
+				}
+			}
+		}
+
+		await this.saveSession(session);
+		return session;
+	}
+
+	/**
 	 * Remove an annotation from a session
 	 */
 	async removeAnnotation(sessionId: string, annotationId: string): Promise<TrackSession> {

@@ -5,7 +5,6 @@ export type * from './types.js';
 
 // Audio modules
 export { AudioEngine } from './audio/AudioEngine.js';
-export { BpmTapper } from './audio/BpmTapper.js';
 
 // Persistence
 export { PersistenceService } from './persistence/PersistenceService.js';

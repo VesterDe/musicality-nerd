@@ -2,6 +2,18 @@
  * Color-to-name mapping for preset annotation colors
  */
 
+// Preset colors for annotations - used across the app
+export const PRESET_COLORS: readonly string[] = [
+	'#00ff00', // Green (default)
+	'#ff0000', // Red
+	'#0080ff', // Blue
+	'#ffff00', // Yellow
+	'#ff00ff', // Magenta
+	'#00ffff', // Cyan
+	'#ff8000', // Orange
+	'#ff0080'  // Pink
+];
+
 // Map preset hex colors to human-readable names
 export const COLOR_NAME_MAP: Record<string, string> = {
 	'#00ff00': 'green',

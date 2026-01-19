@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import type { Annotation } from '../types';
+	import { PRESET_COLORS } from '$lib/utils/colorNames';
 
 	interface Props {
 		visible: boolean;
@@ -20,19 +21,10 @@
 
 	// Component state
 	let annotationLabel = $state('');
-	let annotationColor = $state('#ff5500');
+	let annotationColor = $state(PRESET_COLORS[0]);
 	let inputRef: HTMLInputElement | undefined = $state();
 
-	const defaultColors = [
-		'#ff5500', // Orange
-		'#00baff', // Blue
-		'#ff3366', // Red
-		'#33ff66', // Green
-		'#ffaa00', // Yellow
-		'#aa00ff', // Purple
-		'#ff0099', // Pink
-		'#00ffaa'  // Cyan
-	];
+	const defaultColors = PRESET_COLORS;
 
 	// Auto-focus input when popup becomes visible
 	$effect(() => {

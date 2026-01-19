@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getColorName, isColorName } from '$lib/utils/colorNames';
+	import { getColorName, isColorName, PRESET_COLORS } from '$lib/utils/colorNames';
 
 	interface Props {
 		isAnnotationMode: boolean;
@@ -22,16 +22,7 @@
 		horizontal = false
 	}: Props = $props();
 
-	const presetColors = [
-		'#00ff00', // Green (default)
-		'#ff0000', // Red
-		'#0080ff', // Blue
-		'#ffff00', // Yellow
-		'#ff00ff', // Magenta
-		'#00ffff', // Cyan
-		'#ff8000', // Orange
-		'#ff0080' // Pink
-	];
+	const presetColors = PRESET_COLORS;
 
 	// Display name for preview: use template name if set, otherwise use color name
 	let displayName = $derived(annotationTemplate.name || getColorName(annotationTemplate.color));

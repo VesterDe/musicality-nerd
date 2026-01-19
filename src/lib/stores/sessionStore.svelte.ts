@@ -1,7 +1,7 @@
 import type { TrackSession, Annotation } from '$lib/types';
 import type { AudioEngine } from '$lib/audio/AudioEngine';
 import type { PersistenceService } from '$lib/persistence/PersistenceService';
-import { getColorName, getGroupKey } from '$lib/utils/colorNames';
+import { getColorName, getGroupKey, parseAnnotationGroup } from '$lib/utils/colorNames';
 
 export class SessionStore {
   // Core session data
@@ -268,6 +268,56 @@ export class SessionStore {
       this.hiddenAnnotationGroups = new Set();
     } catch (error) {
       console.error('Failed to clear all annotations:', error);
+    }
+  }
+
+  /**
+   * Update all annotations in a group with a new color
+   */
+  async updateGroupColor(groupKey: string, newColor: string) {
+    if (!this.currentSession || !this.persistenceService) return;
+    try {
+      const updatedSession = await this.persistenceService.updateAnnotationsBulk(
+        this.currentSession.id,
+        (annotation) => getGroupKey(annotation.label) === groupKey,
+        { color: newColor }
+      );
+      this.currentSession = updatedSession;
+    } catch (error) {
+      console.error('Failed to update group color:', error);
+    }
+  }
+
+  /**
+   * Rename all annotations in a group to a new base name
+   * Preserves the number suffix for each annotation
+   */
+  async renameGroup(groupKey: string, newBaseName: string) {
+    if (!this.currentSession || !this.persistenceService) return;
+    try {
+      // We need to update each annotation individually to preserve its number
+      const annotations = this.currentSession.annotations || [];
+      const matchingAnnotations = annotations.filter(
+        (a) => getGroupKey(a.label) === groupKey
+      );
+
+      for (const annotation of matchingAnnotations) {
+        const { number } = parseAnnotationGroup(annotation.label);
+        const newLabel = number !== null ? `${newBaseName} ${number}` : newBaseName;
+        await this.persistenceService.updateAnnotation(
+          this.currentSession.id,
+          annotation.id,
+          { label: newLabel }
+        );
+      }
+
+      // Reload the session to get all updates
+      const session = await this.persistenceService.loadSession(this.currentSession.id);
+      if (session) {
+        this.currentSession = session;
+      }
+    } catch (error) {
+      console.error('Failed to rename group:', error);
     }
   }
 
