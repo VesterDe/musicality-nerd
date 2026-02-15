@@ -10,9 +10,12 @@
 		audioEngine: AudioEngine;
 		bpmDetector: BpmDetector;
 		persistenceService: PersistenceService;
+		onClearAllLoops?: () => void;
+		onExportAllLoops?: () => void;
+		loopingChunkCount?: number;
 	}
 
-	let { audioEngine, bpmDetector, persistenceService }: Props = $props();
+	let { audioEngine, bpmDetector, persistenceService, onClearAllLoops, onExportAllLoops, loopingChunkCount = 0 }: Props = $props();
 
 	// Export service for BPM-aware stem downloads
 	let exportService = $state(new AudioExportService());
@@ -169,6 +172,27 @@
 			</div>
 		</div>
 	</div>
+
+	<!-- Loop Controls -->
+	{#if loopingChunkCount > 0}
+		<div class="space-y-2 border-t border-gray-700 pt-4">
+			<p class="text-sm font-medium text-gray-300">Loop Controls ({loopingChunkCount} chunks)</p>
+			<div class="flex gap-2">
+				<button
+					class="flex-1 rounded bg-gray-700 px-3 py-2 text-sm font-medium text-gray-200 transition-colors hover:bg-gray-600"
+					onclick={onExportAllLoops}
+				>
+					Export Loops
+				</button>
+				<button
+					class="flex-1 rounded bg-red-700 px-3 py-2 text-sm font-medium text-red-100 transition-colors hover:bg-red-600"
+					onclick={onClearAllLoops}
+				>
+					Clear Loops
+				</button>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Stem Controls (only for stem sessions) -->
 	{#if sessionStore.currentSession?.mode === 'stem' && sessionStore.currentSession.stems}

@@ -13,9 +13,12 @@
 		audioEngine: AudioEngine;
 		bpmDetector: BpmDetector;
 		persistenceService: PersistenceService;
+		onClearAllLoops?: () => void;
+		onExportAllLoops?: () => void;
+		loopingChunkCount?: number;
 	}
-	
-	let { audioEngine, bpmDetector, persistenceService }: Props = $props();
+
+	let { audioEngine, bpmDetector, persistenceService, onClearAllLoops, onExportAllLoops, loopingChunkCount = 0 }: Props = $props();
 	
 	// Initialize panel states from localStorage or defaults
 	function getInitialPanelStates() {
@@ -100,7 +103,7 @@
 			</button>
 			{#if openPanels.playback}
 				<div class="px-4 pb-4 pt-2 border-t border-gray-700">
-					<PlaybackSettings {audioEngine} {bpmDetector} {persistenceService} />
+					<PlaybackSettings {audioEngine} {bpmDetector} {persistenceService} {onClearAllLoops} {onExportAllLoops} {loopingChunkCount} />
 				</div>
 			{/if}
 		</div>

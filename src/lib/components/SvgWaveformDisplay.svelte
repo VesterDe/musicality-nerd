@@ -47,6 +47,8 @@
 			stems?: Array<{ enabled: boolean; color?: string }>;
 		} | null;
 		showBeatNumbers?: boolean;
+		onOpenTempoTrainer?: (chunkIndex: number, startTime: number, endTime: number) => void;
+		registerScrollToChunk?: (fn: (chunkIndex: number) => void) => void;
 	}
 
 	let {
@@ -71,7 +73,9 @@
 		onAnnotationModalStateChange,
 		filename = 'audio',
 		currentSession = null,
-		showBeatNumbers = false
+		showBeatNumbers = false,
+		onOpenTempoTrainer,
+		registerScrollToChunk
 	}: Props = $props();
 
 	// Component state
@@ -461,8 +465,12 @@
 		return baseChunks;
 	});
 
+	// Width reserved for the row controls column on the right of each row
+	const BUTTON_COLUMN_WIDTH = 32;
+
 	// Get responsive container width (reacts to resize via containerWidthState)
-	const containerWidth = $derived(containerWidthState);
+	// Subtract button column width so the waveform canvas fits alongside it
+	const containerWidth = $derived(Math.max(100, containerWidthState - BUTTON_COLUMN_WIDTH));
 
 	// Helper function to find nearest power of two below or equal to n
 	function nearestPow2BelowOrEqual(n: number): number {
@@ -515,8 +523,8 @@
 		})
 	);
 
-	// Virtualization: Calculate chunk height (waveform height + header height + spacing)
-	const chunkHeight = $derived(waveformConfig.height + 24 + 8); // 24px header + 8px spacing (space-y-2)
+	// Virtualization: Calculate chunk height (waveform height + spacing between rows)
+	const chunkHeight = $derived(waveformConfig.height + 12); // 12px spacing (space-y-3)
 
 	/**
 	 * Calculate virtual window: which chunks should be rendered based on scroll position
@@ -881,6 +889,22 @@
 	function isChunkInRenderRange(chunkIndex: number): boolean {
 		return visibleChunkIndices.has(chunkIndex);
 	}
+
+	// Scroll to a specific chunk by index (works even for virtualized-out chunks)
+	function scrollToChunk(chunkIndex: number) {
+		if (!scrollContainer || chunkMetadata.length === 0) return;
+		// Find the metadata index for this chunkIndex
+		const metaIndex = chunkMetadata.findIndex((m) => m.index === chunkIndex);
+		if (metaIndex < 0) return;
+		const targetTop = metaIndex * chunkHeight;
+		const centered = targetTop - viewportHeight / 2 + chunkHeight / 2;
+		scrollContainer.scrollTo({ top: Math.max(0, centered), behavior: 'smooth' });
+	}
+
+	// Register scroll function with parent
+	$effect(() => {
+		registerScrollToChunk?.(scrollToChunk);
+	});
 
 	// Initialize audio data when AudioEngine changes
 	let isInitializing = $state(false);
@@ -1738,72 +1762,6 @@
 		}
 	}
 
-	async function handleGroupExport() {
-		const audioBuffer = audioEngine.getAudioBuffer();
-		if (!audioBuffer || loopingChunkIndices.size === 0) {
-			alert('No audio data or looping chunks available for export');
-			return;
-		}
-
-		try {
-			// Convert looping chunk indices to chunk data with timing
-			const chunks = Array.from(loopingChunkIndices).map((chunkIndex) => {
-				const beatsPerChunk = beatGrouping;
-				const chunkDuration = beatsPerChunk * (60 / bpm);
-				const offsetInSeconds = beatOffset / 1000;
-
-				let chunkStartTime: number;
-				let chunkEndTime: number;
-
-				if (chunkIndex === -1) {
-					// Special chunk -1 handling
-					if (beatOffset > 0) {
-						chunkStartTime = 0;
-						chunkEndTime = chunkDuration - offsetInSeconds;
-					} else if (beatOffset < 0) {
-						chunkStartTime = 0;
-						chunkEndTime = Math.abs(offsetInSeconds);
-					} else {
-						chunkStartTime = 0;
-						chunkEndTime = chunkDuration;
-					}
-				} else {
-					// Regular chunks - use same logic as in main page
-					if (beatOffset > 0) {
-						chunkStartTime = chunkDuration - offsetInSeconds + chunkIndex * chunkDuration;
-						chunkEndTime = chunkDuration - offsetInSeconds + (chunkIndex + 1) * chunkDuration;
-					} else if (beatOffset < 0) {
-						chunkStartTime = chunkIndex * chunkDuration + Math.abs(offsetInSeconds);
-						chunkEndTime = (chunkIndex + 1) * chunkDuration + Math.abs(offsetInSeconds);
-					} else {
-						chunkStartTime = chunkIndex * chunkDuration;
-						chunkEndTime = (chunkIndex + 1) * chunkDuration;
-					}
-				}
-
-				return {
-					startTime: Math.max(0, chunkStartTime),
-					endTime: Math.min(chunkEndTime, audioDuration),
-					index: chunkIndex
-				};
-			});
-
-			// Generate filename for chunk range
-			const sortedIndices = Array.from(loopingChunkIndices).sort((a, b) => a - b);
-			const rangeStr =
-				sortedIndices.length === 1
-					? `chunk_${sortedIndices[0] === -1 ? 'pre-song' : sortedIndices[0]}`
-					: `chunks_${sortedIndices[0] === -1 ? 'pre-song' : sortedIndices[0]}-${sortedIndices[sortedIndices.length - 1]}`;
-			const exportFilename = `${filename}_${rangeStr}.wav`;
-
-			// Apply current BPM scaling (pitch shifts) using playbackRate to the combined buffer
-			const playbackRate = targetBPM / bpm;
-			await exportService.exportChunkGroup(audioBuffer, chunks, exportFilename, { playbackRate });
-		} catch (error) {
-			console.error('Failed to export chunk group:', error);
-			alert('Failed to export chunk group. Please try again.');
-		}
-	}
 </script>
 
 <div class="flex flex-col space-y-4">
@@ -1832,10 +1790,10 @@
 			style="height: 100vh; max-height: 100vh; overflow-anchor: none;"
 		>
 			<!-- Spacer for total height to maintain scrollbar - uses fixed height based on total chunks -->
-			<div style="height: {chunkMetadata.length * chunkHeight}px; min-height: 100vh; position: relative;">
+			<div class="bg-gray-950" style="height: {chunkMetadata.length * chunkHeight}px; min-height: 100vh; position: relative;">
 				<!-- Visible chunks positioned with transform -->
 				<div style="position: absolute; top: {virtualWindow.offsetTop}px; left: 0; right: 0;">
-					<div class="space-y-2">
+					<div class="flex flex-col gap-3">
 						{#each chunkData.slice(virtualWindow.startIndex, virtualWindow.endIndex) as chunk (chunk.index)}
 							{#if chunk.shouldRenderContent}
 								<!-- Render full chunk with content -->
@@ -1854,6 +1812,7 @@
 									annotations={chunk.annotations}
 									placeholderAnnotation={chunk.placeholderAnnotation}
 									isLooping={chunk.isLooping}
+									hasActiveLoops={loopingChunkIndices.size > 0}
 									isActiveChunk={playheadInfo?.chunkIndex === chunk.index}
 									activeBarIndex={playheadInfo?.chunkIndex === chunk.index && activeBarInfo
 										? activeBarInfo.barIndex
@@ -1873,16 +1832,12 @@
 									onDeleteAnnotation={handleDeleteAnnotation}
 									onMoveAnnotation={handleMoveAnnotation}
 									onDuplicateAnnotation={handleDuplicateAnnotation}
-									onGroupExport={handleGroupExport}
-									showGroupExportButton={loopingChunkIndices.size > 1 &&
-										chunk.isLooping &&
-										Array.from(loopingChunkIndices).sort((a, b) => a - b)[0] === chunk.index}
-									loopingChunkCount={loopingChunkIndices.size}
 									registerPlayheadLayer={createRegisterCallback(chunk.index)}
 									unregisterPlayheadLayer={createUnregisterCallback(chunk.index)}
 									{isAnnotationMode}
 									{showBeatNumbers}
 									beatsPerLine={beatGrouping}
+									{onOpenTempoTrainer}
 									onAnnotationDragStart={handleAnnotationDragStart}
 									{isDraggingAnnotation}
 									{draggingAnnotationId}
@@ -1897,21 +1852,14 @@
 										: '#ff5500'}
 								/>
 							{:else}
-								<!-- Render placeholder for non-visible chunk (shouldn't happen with virtualization, but kept for safety) -->
+								<!-- Render placeholder for non-visible chunk -->
 								<div
-									class="relative mb-0 overflow-hidden rounded-lg bg-gray-900"
+									class="relative mb-0 flex overflow-hidden bg-gray-900"
 									data-chunk-index={chunk.index}
-									style="height: {waveformConfig.height + 24}px"
+									style="height: {waveformConfig.height}px"
 								>
-									<!-- Minimal header -->
-									<div
-										class="flex items-center justify-between bg-gray-800 px-3 py-2 text-sm text-gray-300"
-									>
-										<div>{chunk.headerInfo}</div>
-										<div class="text-xs text-gray-500">Loading...</div>
-									</div>
-									<!-- Empty space for waveform -->
-									<div class="bg-gray-900" style="height: {waveformConfig.height}px"></div>
+									<div class="flex-1 bg-gray-900"></div>
+									<div class="w-8 flex-shrink-0 bg-gray-800/60"></div>
 								</div>
 							{/if}
 						{/each}

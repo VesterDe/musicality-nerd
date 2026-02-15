@@ -14,6 +14,7 @@
 		setupHighDPICanvas
 	} from '../utils/canvasWaveform';
 	import { timeToPixel } from '../utils/svgWaveform';
+	import { Download, Crosshair, Repeat, Square, LoaderCircle } from 'lucide-svelte';
 
 	interface Props {
 		chunkIndex: number;
@@ -39,6 +40,7 @@
 		annotations: Array<Annotation & { stackPosition: number }>;
 		placeholderAnnotation: (Annotation & { stackPosition: number }) | null;
 		isLooping: boolean;
+		hasActiveLoops?: boolean;
 		isActiveChunk: boolean;
 		activeBeatLineIndices?: Set<number>;
 		activeBarIndex: number;
@@ -54,14 +56,12 @@
 		onDeleteAnnotation: (annotationId: string) => void;
 		onMoveAnnotation: (annotationId: string, newStartTimeMs: number, newEndTimeMs: number) => void;
 		onDuplicateAnnotation: (annotation: Annotation) => void;
-		onGroupExport?: () => void;
-		showGroupExportButton?: boolean;
-		loopingChunkCount?: number;
 		registerPlayheadLayer?: (canvas: HTMLCanvasElement | null) => void;
 		unregisterPlayheadLayer?: () => void;
 		isAnnotationMode?: boolean;
 		showBeatNumbers?: boolean;
 		beatsPerLine?: number;
+		onOpenTempoTrainer?: (chunkIndex: number, startTime: number, endTime: number) => void;
 		// Cross-row annotation drag props
 		onAnnotationDragStart?: (
 			annotationId: string,
@@ -95,6 +95,7 @@
 		annotations,
 		placeholderAnnotation,
 		isLooping,
+		hasActiveLoops = false,
 		isActiveChunk,
 		activeBeatLineIndices,
 		activeBarIndex,
@@ -110,14 +111,12 @@
 		onDeleteAnnotation,
 		onMoveAnnotation,
 		onDuplicateAnnotation,
-		onGroupExport,
-		showGroupExportButton = false,
-		loopingChunkCount = 0,
 		registerPlayheadLayer,
 		unregisterPlayheadLayer,
 		isAnnotationMode = false,
 		showBeatNumbers = false,
 		beatsPerLine = 8,
+		onOpenTempoTrainer,
 		onAnnotationDragStart,
 		isDraggingAnnotation = false,
 		draggingAnnotationId = null,
@@ -330,48 +329,11 @@
 </script>
 
 <div
-	class="relative mb-0 overflow-hidden bg-gray-900 {isActiveChunk ? 'current-chunk' : ''}"
+	class="relative flex {hasActiveLoops && !isLooping ? 'opacity-50' : ''} {isActiveChunk ? 'current-chunk' : ''}"
 	data-chunk-index={chunkIndex}
 >
-	<!-- Chunk Header -->
-	<div
-		class="flex items-center justify-end bg-gray-800 py-1 pr-0 pl-2"
-		style="touch-action: pan-y;"
-	>
-		<div class="flex items-center">
-			<!-- Show group download button only on the first looping chunk -->
-			{#if showGroupExportButton && loopingChunkCount > 1}
-				<button
-					class="rounded-l bg-gray-700 px-2 py-0.5 text-xs text-gray-300 transition-colors hover:bg-gray-600"
-					onclick={onGroupExport}
-				>
-					📦 ({loopingChunkCount})
-				</button>
-			{/if}
-			<button
-				class="{showGroupExportButton && loopingChunkCount > 1
-					? ''
-					: 'rounded-l'} px-2 py-0.5 text-xs transition-colors {exportingChunk
-					? 'bg-gray-700 text-gray-400'
-					: 'bg-gray-700 text-gray-300 hover:bg-gray-600'}"
-				onclick={() => onChunkExport(chunkIndex, startTime, endTime)}
-				disabled={exportingChunk}
-			>
-				{exportingChunk ? '⏳' : '📥'}
-			</button>
-			<button
-				class="rounded-r px-2 py-0.5 text-xs transition-colors {isLooping
-					? 'bg-blue-600 text-white'
-					: 'bg-blue-700 text-blue-200 hover:bg-blue-600'}"
-				onclick={() => onToggleChunkLoop(chunkIndex, startTime, endTime)}
-			>
-				{isLooping ? '⏹️' : '🔁'}
-			</button>
-		</div>
-	</div>
-
 	<!-- Canvas Waveform Container -->
-	<div class="relative" style="width: {waveformConfig.width}px; height: {waveformConfig.height}px;">
+	<div class="relative flex-1 min-w-0 overflow-hidden bg-gray-900" style="width: {waveformConfig.width}px; height: {waveformConfig.height}px;">
 		<!-- Main waveform canvas -->
 		<canvas
 			bind:this={canvasElement}
@@ -445,5 +407,46 @@
 				</div>
 			{/if}
 		</div>
+	</div>
+
+	<!-- Row Controls Column -->
+	<div
+		class="mx-1.5 flex w-7 flex-shrink-0 flex-col items-center justify-center gap-1"
+		style="touch-action: pan-y;"
+	>
+		<button
+			class="tooltip-left flex h-6 w-6 items-center justify-center rounded transition-colors {exportingChunk
+				? 'bg-gray-700 text-gray-500'
+				: 'bg-gray-700 text-gray-300 hover:bg-gray-600'}"
+			onclick={() => onChunkExport(chunkIndex, startTime, endTime)}
+			disabled={exportingChunk}
+			data-tooltip={exportingChunk ? 'Exporting...' : 'Export chunk as WAV'}
+		>
+			{#if exportingChunk}
+				<LoaderCircle size={14} strokeWidth={2} class="animate-spin" />
+			{:else}
+				<Download size={14} strokeWidth={2} />
+			{/if}
+		</button>
+		<button
+			class="tooltip-left flex h-6 w-6 items-center justify-center rounded transition-colors bg-amber-800/60 text-amber-300 hover:bg-amber-700/80"
+			onclick={() => onOpenTempoTrainer?.(chunkIndex, startTime, endTime)}
+			data-tooltip="Tempo Trainer"
+		>
+			<Crosshair size={14} strokeWidth={2} />
+		</button>
+		<button
+			class="tooltip-left flex h-6 w-6 items-center justify-center rounded transition-colors {isLooping
+				? 'bg-blue-600 text-white'
+				: 'bg-blue-800/60 text-blue-300 hover:bg-blue-700/80'}"
+			onclick={() => onToggleChunkLoop(chunkIndex, startTime, endTime)}
+			data-tooltip={isLooping ? 'Remove from loop' : 'Add to loop'}
+		>
+			{#if isLooping}
+				<Square size={12} strokeWidth={2.5} />
+			{:else}
+				<Repeat size={14} strokeWidth={2} />
+			{/if}
+		</button>
 	</div>
 </div>

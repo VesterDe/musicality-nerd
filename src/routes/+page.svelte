@@ -9,9 +9,13 @@
 	import SongList from '$lib/components/SongList.svelte';
 	import StemList from '$lib/components/StemList.svelte';
 	import Sidebar from '$lib/components/sidebar/Sidebar.svelte';
+	import TempoTrainerModal from '$lib/components/TempoTrainer/TempoTrainerModal.svelte';
+	import TempoTrainerView from '$lib/components/TempoTrainer/TempoTrainerView.svelte';
+	import { AudioExportService } from '$lib/audio/AudioExportService';
 	import { stemExtractor } from '$lib/utils/stemExtractor';
 	import { detectBpmWithStemFallback } from '$lib/utils/bpmDetection';
 	import { getColorName } from '$lib/utils/colorNames';
+	import { Play, Pause, LocateFixed } from 'lucide-svelte';
 	import type { TrackSession, Annotation } from '$lib/types';
 	let { data } = $props();
 
@@ -27,12 +31,15 @@
 	let loopingChunkIndices = $state(new Set<number>());
 	let isAnnotationModalOpen = $state(false);
 	let isDraggingProgress = $state(false);
-	let selectedMode: 'normal' | 'stem' | null = $state(null); // Mode selector state
+	let selectedMode: 'normal' | 'stem' | 'tempoTrainer' | null = $state(null); // Mode selector state
 	let isEditingSessionName = $state(false);
 	let editingSessionName = $state('');
 	let isExtractingStems = $state(false);
 	let stemExtractionProgress = $state<string>('');
 	let isSidebarOpen = $state(false);
+	let tempoTrainerSegment: { startTime: number; endTime: number; chunkIndex: number } | null = $state(null);
+	let exportService = $state(new AudioExportService());
+	let waveformScrollToChunk: ((chunkIndex: number) => void) | null = $state(null);
 	
 	// Throttling for coarse time updates (~10Hz)
 	let lastTimeUpdate = $state(0);
@@ -867,20 +874,14 @@
 
 	function autoScrollToCurrentChunk() {
 		if (!sessionStore.autoFollow || !sessionStore.currentSession) return;
-
-		// Compute the current chunk index regardless of render state
 		const chunkIndex = getCurrentChunkIndex();
+		waveformScrollToChunk?.(chunkIndex);
+	}
 
-		// Prefer targeting the chunk container (works with virtualization placeholders)
-		const targetElement = document.querySelector(`[data-chunk-index="${chunkIndex}"]`) 
-			|| document.querySelector('.current-chunk');
-
-		if (targetElement) {
-			targetElement.scrollIntoView({
-				behavior: 'smooth',
-				block: 'center'
-			});
-		}
+	function scrollToPlayhead() {
+		if (!sessionStore.currentSession) return;
+		const chunkIndex = getCurrentChunkIndex();
+		waveformScrollToChunk?.(chunkIndex);
 	}
 
 
@@ -1165,14 +1166,14 @@
 	
 	function handleClearLoop() {
 		if (!audioEngine) return;
-		
+
 		// Store scroll position before state change
 		const spectrogramContainer = document.querySelector('.overflow-y-auto');
 		const scrollTop = spectrogramContainer?.scrollTop || 0;
-		
+
 		audioEngine.clearLoop();
 		loopingChunkIndices = new Set<number>();
-		
+
 		// Restore scroll position after state change
 		requestAnimationFrame(() => {
 			if (spectrogramContainer) {
@@ -1181,7 +1182,78 @@
 		});
 	}
 
+	async function handleGroupExport() {
+		if (!audioEngine || !sessionStore.currentSession || loopingChunkIndices.size === 0) return;
 
+		const audioBuffer = audioEngine.getAudioBuffer();
+		if (!audioBuffer) {
+			alert('No audio data available for export');
+			return;
+		}
+
+		try {
+			const beatsPerChunk = sessionStore.beatsPerLine;
+			const chunkDur = beatsPerChunk * (60 / sessionStore.bpm);
+			const offsetInSeconds = sessionStore.beatOffset / 1000;
+
+			const chunks = Array.from(loopingChunkIndices).map((chunkIndex) => {
+				let chunkStartTime: number;
+				let chunkEndTime: number;
+
+				if (chunkIndex === -1) {
+					if (sessionStore.beatOffset > 0) {
+						chunkStartTime = 0;
+						chunkEndTime = chunkDur - offsetInSeconds;
+					} else if (sessionStore.beatOffset < 0) {
+						chunkStartTime = 0;
+						chunkEndTime = Math.abs(offsetInSeconds);
+					} else {
+						chunkStartTime = 0;
+						chunkEndTime = chunkDur;
+					}
+				} else {
+					if (sessionStore.beatOffset > 0) {
+						chunkStartTime = chunkDur - offsetInSeconds + chunkIndex * chunkDur;
+						chunkEndTime = chunkDur - offsetInSeconds + (chunkIndex + 1) * chunkDur;
+					} else if (sessionStore.beatOffset < 0) {
+						chunkStartTime = chunkIndex * chunkDur + Math.abs(offsetInSeconds);
+						chunkEndTime = (chunkIndex + 1) * chunkDur + Math.abs(offsetInSeconds);
+					} else {
+						chunkStartTime = chunkIndex * chunkDur;
+						chunkEndTime = (chunkIndex + 1) * chunkDur;
+					}
+				}
+
+				return {
+					startTime: Math.max(0, chunkStartTime),
+					endTime: Math.min(chunkEndTime, sessionStore.duration),
+					index: chunkIndex
+				};
+			});
+
+			const filename = sessionStore.currentSession.filename.replace(/\.[^/.]+$/, '');
+			const sortedIndices = Array.from(loopingChunkIndices).sort((a, b) => a - b);
+			const rangeStr =
+				sortedIndices.length === 1
+					? `chunk_${sortedIndices[0] === -1 ? 'pre-song' : sortedIndices[0]}`
+					: `chunks_${sortedIndices[0] === -1 ? 'pre-song' : sortedIndices[0]}-${sortedIndices[sortedIndices.length - 1]}`;
+			const exportFilename = `${filename}_${rangeStr}.wav`;
+
+			const playbackRate = sessionStore.bpm > 0 ? sessionStore.targetBPM / sessionStore.bpm : 1;
+			await exportService.exportChunkGroup(audioBuffer, chunks, exportFilename, { playbackRate });
+		} catch (error) {
+			console.error('Failed to export chunk group:', error);
+			alert('Failed to export chunk group. Please try again.');
+		}
+	}
+
+	function handleOpenTempoTrainer(chunkIndex: number, startTime: number, endTime: number) {
+		tempoTrainerSegment = { chunkIndex, startTime, endTime };
+	}
+
+	function handleStemToggle(index: number, enabled: boolean) {
+		audioEngine.setStemEnabled(index, enabled);
+	}
 
 	async function returnToSongList() {
 		if (!sessionStore.currentSession) return;
@@ -1333,15 +1405,29 @@
 		{#if sessionStore.currentSession}
 			<!-- Transport Controls -->
 			<div class="bg-gray-800 rounded-lg px-4 py-1.5 sticky top-0 z-10 shadow-lg border-b border-gray-700 backdrop-blur-sm">
-				<div class="flex items-center gap-2.5">
-					<button 
-						class="bg-blue-600 hover:bg-blue-700 p-1 rounded-full transition-colors flex-shrink-0 w-7 h-7 flex items-center justify-center"
-						title={sessionStore.isPlaying ? 'Pause' : 'Play'}
-						aria-label={sessionStore.isPlaying ? 'Pause' : 'Play'}
-						onclick={togglePlayback}
-					>
-						<span class="text-xs leading-none">{sessionStore.isPlaying ? '⏸' : '▶'}</span>
-					</button>
+				<div class="flex items-stretch gap-2.5">
+					<div class="flex items-center flex-shrink-0 -ml-4 -my-1.5">
+						<button
+							class="tooltip-bottom bg-blue-600 hover:bg-blue-700 px-2 rounded-l-lg transition-colors h-full flex items-center justify-center"
+							data-tooltip={sessionStore.isPlaying ? 'Pause' : 'Play'}
+							aria-label={sessionStore.isPlaying ? 'Pause' : 'Play'}
+							onclick={togglePlayback}
+						>
+							{#if sessionStore.isPlaying}
+								<Pause size={14} fill="currentColor" />
+							{:else}
+								<Play size={14} fill="currentColor" />
+							{/if}
+						</button>
+						<button
+							class="tooltip-bottom bg-gray-700 hover:bg-gray-600 px-2 transition-colors h-full flex items-center justify-center border-l border-gray-600"
+							data-tooltip="Jump to playhead"
+							aria-label="Jump to playhead"
+							onclick={scrollToPlayhead}
+						>
+							<LocateFixed size={14} />
+						</button>
+					</div>
 					
 					<div class="text-xs text-gray-400 whitespace-nowrap flex-shrink-0 min-w-[90px]">
 						{formatTime(sessionStore.currentTime)} / {formatTime(sessionStore.duration)}
@@ -1400,6 +1486,8 @@
 					filename={sessionStore.currentSession.filename.replace(/\.[^/.]+$/, "")}
 					currentSession={sessionStore.currentSession}
 					showBeatNumbers={sessionStore.showBeatNumbers}
+					onOpenTempoTrainer={handleOpenTempoTrainer}
+					registerScrollToChunk={(fn) => waveformScrollToChunk = fn}
 				/>
 			{:else if sessionStore.isSessionInitializing}
 				<!-- Loading state for waveform -->
@@ -1458,7 +1546,7 @@
 					<h2 class="text-2xl font-bold text-white">Choose Mode</h2>
 					<p class="text-gray-400">Select how you want to work with audio</p>
 				</div>
-				<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+				<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
 					<!-- Normal Mode -->
 					<button
 						class="bg-gray-800 hover:bg-gray-700 border-2 border-gray-700 hover:border-blue-500 rounded-lg p-8 text-center transition-all cursor-pointer w-full"
@@ -1481,6 +1569,17 @@
 							<p class="text-gray-400 text-sm">Multiple audio tracks together</p>
 						</div>
 					</button>
+					<!-- Tempo Trainer -->
+					<button
+						class="bg-gray-800 hover:bg-gray-700 border-2 border-gray-700 hover:border-amber-500 rounded-lg p-8 text-center transition-all cursor-pointer w-full"
+						onclick={() => selectedMode = 'tempoTrainer'}
+					>
+						<div class="space-y-3">
+							<div class="text-4xl">🎯</div>
+							<h3 class="text-xl font-semibold text-white">Tempo Trainer</h3>
+							<p class="text-gray-400 text-sm">Practice with gradual tempo increase</p>
+						</div>
+					</button>
 				</div>
 			</div>
 		{:else if selectedMode === 'normal'}
@@ -1491,10 +1590,15 @@
 			/>
 		{:else if selectedMode === 'stem'}
 			<!-- Stem Mode List -->
-			<StemList 
+			<StemList
 				onStemSessionSelected={handleSongSelected}
 				onFilesDrop={handleStemFilesDrop}
 			/>
+		{:else if selectedMode === 'tempoTrainer'}
+			<!-- Tempo Trainer View -->
+			<div class="max-w-md mx-auto">
+				<TempoTrainerView onClose={() => selectedMode = null} />
+			</div>
 		{/if}
 		</div>
 		
@@ -1527,13 +1631,13 @@
 							</svg>
 						</button>
 					</div>
-					<Sidebar {audioEngine} {bpmDetector} {persistenceService} />
+					<Sidebar {audioEngine} {bpmDetector} {persistenceService} onClearAllLoops={handleClearLoop} onExportAllLoops={handleGroupExport} loopingChunkCount={loopingChunkIndices.size} />
 				</aside>
 			{/if}
 			
 			<!-- Desktop: Fixed column sidebar -->
 			<div class="hidden lg:block">
-				<Sidebar {audioEngine} {bpmDetector} {persistenceService} />
+				<Sidebar {audioEngine} {bpmDetector} {persistenceService} onClearAllLoops={handleClearLoop} onExportAllLoops={handleGroupExport} loopingChunkCount={loopingChunkIndices.size} />
 			</div>
 		{/if}
 	</div>
@@ -1542,9 +1646,26 @@
 	<footer class="flex-shrink-0 bg-gray-800 border-t border-gray-700 px-4 py-3 text-center">
 		<p class="text-sm text-gray-400">
 			Made with ❤️ by <a href="https://vester.si/blog/me?utm_source=musicality-nerd" target="_blank" class="text-amber-500 hover:text-amber-400 transition-colors">Demjan</a>
+			· part of <a href="https://dance.tools?utm_source=musicality-nerd" target="_blank" class="text-amber-500 hover:text-amber-400 transition-colors">dance.tools</a>
 		</p>
 	</footer>
 </main>
+
+<!-- Tempo Trainer Modal (Segment mode only) -->
+{#if tempoTrainerSegment}
+	<TempoTrainerModal
+		{audioEngine}
+		songBpm={sessionStore.bpm}
+		segmentStart={tempoTrainerSegment.startTime}
+		segmentEnd={tempoTrainerSegment.endTime}
+		chunkIndex={tempoTrainerSegment.chunkIndex}
+		stemStates={sessionStore.currentSession?.mode === 'stem' && sessionStore.currentSession?.stems
+			? sessionStore.currentSession.stems.map(s => s.enabled)
+			: []}
+		onStemToggle={handleStemToggle}
+		onClose={() => tempoTrainerSegment = null}
+	/>
+{/if}
 
 
 <style>
