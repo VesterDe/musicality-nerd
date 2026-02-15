@@ -54,11 +54,9 @@ export class AudioEngine {
 			this.analyserNode.connect(this.gainNode);
 		}
 
-		// Resume context if suspended (required by browser policies)
+		// Resume context if suspended (required by browser autoplay policies)
 		if (this.audioContext.state === 'suspended') {
-			setTimeout(async () => {
-				await this.audioContext?.resume();
-			}, 3000);
+			await this.audioContext.resume();
 		}
 	}
 
@@ -165,6 +163,7 @@ export class AudioEngine {
 		this.sourceNode = this.audioContext.createBufferSource();
 		this.sourceNode.buffer = this.audioBuffer;
 		this.sourceNode.playbackRate.value = this.playbackRate;
+		this.applyNativeLooping(this.sourceNode);
 		this.sourceNode.connect(this.analyserNode!);
 
 		// Handle playback end
@@ -259,8 +258,9 @@ export class AudioEngine {
 			
 			sourceNode.buffer = buffer;
 			sourceNode.playbackRate.value = this.playbackRate;
+			this.applyNativeLooping(sourceNode);
 			sourceNode.connect(gainNode);
-			
+
 			// Connect each stem's gain node to the mixer
 			gainNode.connect(mixerGain);
 
@@ -306,6 +306,7 @@ export class AudioEngine {
 	private cleanupStemSources(): void {
 		for (const stemSource of this.stemSources) {
 			try {
+				stemSource.sourceNode.onended = null;
 				stemSource.sourceNode.stop();
 				stemSource.sourceNode.disconnect();
 				stemSource.gainNode.disconnect();
@@ -322,35 +323,26 @@ export class AudioEngine {
 	pause(): void {
 		if (!this.isPlaying || !this.audioContext) return;
 
+		// Capture wrapped position before stopping (getCurrentTime accounts for native looping)
+		const currentPlaybackTime = this.getCurrentTime();
+
 		if (this.isStemMode) {
-			// Calculate pause time accounting for playback rate
-			const elapsedTime = this.audioContext.currentTime - this.startTime;
-			const currentPlaybackTime = elapsedTime * this.playbackRate;
-			
-			// Stop all stem sources
 			this.cleanupStemSources();
-			
-			this.pauseTime = currentPlaybackTime;
-			this.isPlaying = false;
-			this.updateLoopRunning = false;
 		} else {
 			if (!this.sourceNode) return;
 
-			// Calculate pause time accounting for playback rate
-			const elapsedTime = this.audioContext.currentTime - this.startTime;
-			const currentPlaybackTime = elapsedTime * this.playbackRate;
-			
+			this.sourceNode.onended = null;
 			try {
 				this.sourceNode.stop();
 				this.sourceNode.disconnect();
 			} catch (e) {
 				// Ignore errors if already stopped/disconnected
 			}
-			
-			this.pauseTime = currentPlaybackTime;
-			this.isPlaying = false;
-			this.updateLoopRunning = false;
 		}
+
+		this.pauseTime = currentPlaybackTime;
+		this.isPlaying = false;
+		this.updateLoopRunning = false;
 	}
 
 	/**
@@ -361,6 +353,7 @@ export class AudioEngine {
 			this.cleanupStemSources();
 		} else {
 			if (this.sourceNode) {
+				this.sourceNode.onended = null;
 				try {
 					this.sourceNode.stop();
 					this.sourceNode.disconnect();
@@ -393,8 +386,6 @@ export class AudioEngine {
 		this.pauseTime = clampedTime;
 
 		if (wasPlaying) {
-			// Small delay to ensure clean state transition
-			await new Promise(resolve => setTimeout(resolve, 5));
 			await this.play();
 		}
 	}
@@ -409,7 +400,20 @@ export class AudioEngine {
 			// Calculate elapsed time since start
 			const elapsedTime = this.audioContext.currentTime - this.startTime;
 			// Adjust for playback rate to get actual position in the audio
-			const currentTime = elapsedTime * this.playbackRate;
+			let currentTime = elapsedTime * this.playbackRate;
+
+			// When native looping is active, the audio thread wraps playback at
+			// loopEnd, but our linear calculation keeps increasing. Wrap it to
+			// match the actual audio position.
+			if (this.loopEnabled && this.loopSegments.length > 0) {
+				const loopStart = this.loopSegments[0].start;
+				const loopEnd = this.loopSegments[this.loopSegments.length - 1].end;
+				const loopDuration = loopEnd - loopStart;
+				if (loopDuration > 0 && currentTime > loopEnd) {
+					currentTime = loopStart + ((currentTime - loopStart) % loopDuration);
+				}
+			}
+
 			// Ensure time is within valid bounds
 			return Math.max(0, Math.min(currentTime, this.getDuration()));
 		} else {
@@ -492,7 +496,6 @@ export class AudioEngine {
 				const currentPosition = this.getCurrentTime();
 				
 				// Update the playback rate
-				const oldRate = this.playbackRate;
 				this.playbackRate = newRate;
 				this.sourceNode.playbackRate.value = this.playbackRate;
 				
@@ -536,9 +539,41 @@ export class AudioEngine {
 	}
 
 	/**
+	 * Apply native Web Audio API looping to a source node.
+	 * This ensures loops are enforced at the audio thread level,
+	 * even when the browser tab is backgrounded and rAF is throttled.
+	 */
+	private applyNativeLooping(sourceNode: AudioBufferSourceNode): void {
+		if (this.loopEnabled && this.loopSegments.length > 0) {
+			sourceNode.loop = true;
+			sourceNode.loopStart = this.loopSegments[0].start;
+			sourceNode.loopEnd = this.loopSegments[this.loopSegments.length - 1].end;
+		} else {
+			sourceNode.loop = false;
+		}
+	}
+
+	/**
+	 * Update native looping on all live source nodes
+	 */
+	private updateLiveSourceLooping(): void {
+		if (!this.isPlaying) return;
+		if (this.isStemMode) {
+			for (const stemSource of this.stemSources) {
+				this.applyNativeLooping(stemSource.sourceNode);
+			}
+		} else if (this.sourceNode) {
+			this.applyNativeLooping(this.sourceNode);
+		}
+	}
+
+	/**
 	 * Set loop segments for playback (supports non-contiguous looping)
 	 */
 	setLoopSegments(segments: Array<{ start: number; end: number }>): void {
+		// Capture position under the OLD loop bounds before changing anything
+		const currentPos = this.isPlaying ? this.getCurrentTime() : null;
+
 		this.loopSegments = segments
 			.map(seg => ({
 				start: Math.max(0, seg.start),
@@ -547,6 +582,25 @@ export class AudioEngine {
 			.sort((a, b) => a.start - b.start); // Sort by start time
 		this.loopEnabled = segments.length > 0;
 		this.currentLoopSegmentIndex = 0;
+		this.updateLiveSourceLooping();
+
+		// Re-anchor startTime so the linear calculation aligns with the new bounds
+		if (this.isPlaying && this.audioContext && currentPos !== null) {
+			this.startTime = this.audioContext.currentTime - (currentPos / this.playbackRate);
+
+			// If playhead is now outside the new loop, jump into the nearest segment
+			if (this.loopEnabled && this.loopSegments.length > 0) {
+				const inSegment = this.loopSegments.some(
+					seg => currentPos >= seg.start && currentPos <= seg.end
+				);
+				if (!inSegment) {
+					const nearest = this.loopSegments.reduce((best, seg) =>
+						Math.abs(seg.start - currentPos) < Math.abs(best.start - currentPos) ? seg : best
+					);
+					this.jumpToSegment(nearest.start);
+				}
+			}
+		}
 	}
 	
 	/**
@@ -560,11 +614,19 @@ export class AudioEngine {
 	 * Clear loop points and disable looping
 	 */
 	clearLoop(): void {
+		// Capture wrapped position before disabling loop
+		const currentPos = this.isPlaying ? this.getCurrentTime() : null;
+
 		this.loopEnabled = false;
 		this.loopSegments = [];
 		this.currentLoopSegmentIndex = 0;
-		
-		// No need to restart playback - looping is handled in the time update loop
+		this.updateLiveSourceLooping();
+
+		// Re-anchor so linear time starts from actual position, not the
+		// inflated value that accumulated while native looping held audio back
+		if (this.isPlaying && this.audioContext && currentPos !== null) {
+			this.startTime = this.audioContext.currentTime - (currentPos / this.playbackRate);
+		}
 	}
 	
 	/**
@@ -622,6 +684,7 @@ export class AudioEngine {
 				
 				sourceNode.buffer = buffer;
 				sourceNode.playbackRate.value = this.playbackRate;
+				this.applyNativeLooping(sourceNode);
 				sourceNode.connect(gainNode);
 				gainNode.connect(mixerGain);
 				
@@ -660,8 +723,9 @@ export class AudioEngine {
 			this.startTime = this.audioContext.currentTime - (clampedTime / this.playbackRate);
 		} else {
 			// Single track mode
-			// Stop current source
+			// Detach handler before stopping to prevent spurious onended firing
 			if (this.sourceNode) {
+				this.sourceNode.onended = null;
 				try {
 					this.sourceNode.stop();
 					this.sourceNode.disconnect();
@@ -674,6 +738,7 @@ export class AudioEngine {
 			this.sourceNode = this.audioContext.createBufferSource();
 			this.sourceNode.buffer = this.audioBuffer;
 			this.sourceNode.playbackRate.value = this.playbackRate;
+			this.applyNativeLooping(this.sourceNode);
 			this.sourceNode.connect(this.analyserNode!);
 			
 			// Handle playback end for the new source

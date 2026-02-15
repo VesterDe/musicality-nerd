@@ -416,8 +416,8 @@
 	>
 		<button
 			class="tooltip-left flex h-6 w-6 items-center justify-center rounded transition-colors {exportingChunk
-				? 'bg-gray-700 text-gray-500'
-				: 'bg-gray-700 text-gray-300 hover:bg-gray-600'}"
+				? 'text-gray-500'
+				: 'text-gray-300 hover:bg-gray-600'}"
 			onclick={() => onChunkExport(chunkIndex, startTime, endTime)}
 			disabled={exportingChunk}
 			data-tooltip={exportingChunk ? 'Exporting...' : 'Export chunk as WAV'}
@@ -429,7 +429,7 @@
 			{/if}
 		</button>
 		<button
-			class="tooltip-left flex h-6 w-6 items-center justify-center rounded transition-colors bg-amber-800/60 text-amber-300 hover:bg-amber-700/80"
+			class="tooltip-left flex h-6 w-6 items-center justify-center rounded transition-colors text-amber-300 hover:bg-amber-700/80"
 			onclick={() => onOpenTempoTrainer?.(chunkIndex, startTime, endTime)}
 			data-tooltip="Tempo Trainer"
 		>
@@ -438,7 +438,7 @@
 		<button
 			class="tooltip-left flex h-6 w-6 items-center justify-center rounded transition-colors {isLooping
 				? 'bg-blue-600 text-white'
-				: 'bg-blue-800/60 text-blue-300 hover:bg-blue-700/80'}"
+				: 'text-blue-300 hover:bg-blue-700/80'}"
 			onclick={() => onToggleChunkLoop(chunkIndex, startTime, endTime)}
 			data-tooltip={isLooping ? 'Remove from loop' : 'Add to loop'}
 		>

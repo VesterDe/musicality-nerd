@@ -62,29 +62,6 @@
 
 <aside class="w-full lg:w-80 bg-gray-800 border-l border-gray-700 overflow-y-auto h-full" style="overflow-anchor: none;">
 	<div class="p-4 space-y-2">
-		<!-- Info Bar -->
-		<div class="bg-gray-900 rounded-lg overflow-hidden">
-			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
-				onclick={() => togglePanel('info')}
-			>
-				<span class="text-sm font-medium text-gray-200">Session Info</span>
-				<svg 
-					class="w-4 h-4 text-gray-400 transition-transform duration-200 {openPanels.info ? 'rotate-180' : ''}"
-					fill="none" 
-					stroke="currentColor" 
-					viewBox="0 0 24 24"
-				>
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-				</svg>
-			</button>
-			{#if openPanels.info}
-				<div class="px-4 pb-4 pt-2 border-t border-gray-700">
-					<InfoBar />
-				</div>
-			{/if}
-		</div>
-		
 		<!-- Playback Settings -->
 		<div class="bg-gray-900 rounded-lg overflow-hidden">
 			<button
@@ -177,6 +154,29 @@
 			{/if}
 		</div>
 		
+		<!-- Info Bar -->
+		<div class="bg-gray-900 rounded-lg overflow-hidden">
+			<button
+				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				onclick={() => togglePanel('info')}
+			>
+				<span class="text-sm font-medium text-gray-200">Session Info</span>
+				<svg
+					class="w-4 h-4 text-gray-400 transition-transform duration-200 {openPanels.info ? 'rotate-180' : ''}"
+					fill="none"
+					stroke="currentColor"
+					viewBox="0 0 24 24"
+				>
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+				</svg>
+			</button>
+			{#if openPanels.info}
+				<div class="px-4 pb-4 pt-2 border-t border-gray-700">
+					<InfoBar />
+				</div>
+			{/if}
+		</div>
+
 		<!-- Keyboard Shortcuts -->
 		<div class="bg-gray-900 rounded-lg overflow-hidden">
 			<button

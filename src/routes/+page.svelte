@@ -601,7 +601,7 @@
 		}
 
 		// Prevent default for our shortcuts
-		if (event.code === 'Space' || event.code === 'ArrowLeft' || event.code === 'ArrowRight' || event.code === 'Enter' || event.code === 'KeyM' || (event.code === 'KeyA' && sessionStore.isAnnotationMode)) {
+		if (event.code === 'Space' || event.code === 'ArrowLeft' || event.code === 'ArrowRight' || event.code === 'Enter' || event.code === 'KeyM' || event.code === 'KeyF' || (event.code === 'KeyA' && sessionStore.isAnnotationMode)) {
 			event.preventDefault();
 		}
 
@@ -633,6 +633,10 @@
 				}
 				break;
 				
+			case 'KeyF':
+				scrollToPlayhead();
+				break;
+
 			case 'KeyA':
 				// Handle annotation creation (only in annotation mode and while playing)
 				// Check isAKeyPressed to ensure this is a fresh press, not a held key or repeat
@@ -1408,7 +1412,7 @@
 				<div class="flex items-stretch gap-2.5">
 					<div class="flex items-center flex-shrink-0 -ml-4 -my-1.5">
 						<button
-							class="tooltip-bottom bg-blue-600 hover:bg-blue-700 px-2 rounded-l-lg transition-colors h-full flex items-center justify-center"
+							class="tooltip-bottom bg-blue-600 hover:bg-blue-700 rounded-l-lg transition-colors w-8 h-8 flex items-center justify-center"
 							data-tooltip={sessionStore.isPlaying ? 'Pause' : 'Play'}
 							aria-label={sessionStore.isPlaying ? 'Pause' : 'Play'}
 							onclick={togglePlayback}
@@ -1420,7 +1424,7 @@
 							{/if}
 						</button>
 						<button
-							class="tooltip-bottom bg-gray-700 hover:bg-gray-600 px-2 transition-colors h-full flex items-center justify-center border-l border-gray-600"
+							class="tooltip-bottom bg-gray-700 hover:bg-gray-600 transition-colors w-8 h-8 flex items-center justify-center border-l border-gray-600"
 							data-tooltip="Jump to playhead"
 							aria-label="Jump to playhead"
 							onclick={scrollToPlayhead}
@@ -1429,7 +1433,7 @@
 						</button>
 					</div>
 					
-					<div class="text-xs text-gray-400 whitespace-nowrap flex-shrink-0 min-w-[90px]">
+					<div class="text-xs text-gray-400 whitespace-nowrap flex-shrink-0 min-w-[90px] self-center">
 						{formatTime(sessionStore.currentTime)} / {formatTime(sessionStore.duration)}
 					</div>
 					
@@ -1450,7 +1454,7 @@
 						/>
 					</div>
 					
-					<div class="text-xs text-gray-400 whitespace-nowrap flex-shrink-0">
+					<div class="text-xs text-gray-400 whitespace-nowrap flex-shrink-0 self-center">
 						Beat: {sessionStore.currentBeatIndex >= 0 ? sessionStore.currentBeatIndex + 1 : '-'}
 					</div>
 				</div>
