@@ -7,6 +7,41 @@ import type { Annotation } from '../types';
 import type { ChunkBounds, WaveformConfig, WaveformBar } from './svgWaveform';
 
 /**
+ * Cached hatch pattern source canvas (created once, reused)
+ */
+let hatchPatternSource: HTMLCanvasElement | null = null;
+
+function getHatchPatternSource(): HTMLCanvasElement {
+	if (!hatchPatternSource) {
+		const patternSize = 12;
+		hatchPatternSource = document.createElement('canvas');
+		hatchPatternSource.width = patternSize;
+		hatchPatternSource.height = patternSize;
+		const patternCtx = hatchPatternSource.getContext('2d');
+		if (patternCtx) {
+			patternCtx.strokeStyle = 'rgba(156, 163, 175, 0.4)';
+			patternCtx.lineWidth = 1;
+
+			patternCtx.beginPath();
+			patternCtx.moveTo(0, patternSize);
+			patternCtx.lineTo(patternSize, 0);
+			patternCtx.stroke();
+
+			patternCtx.beginPath();
+			patternCtx.moveTo(-3, 3);
+			patternCtx.lineTo(3, -3);
+			patternCtx.stroke();
+
+			patternCtx.beginPath();
+			patternCtx.moveTo(9, 15);
+			patternCtx.lineTo(15, 9);
+			patternCtx.stroke();
+		}
+	}
+	return hatchPatternSource;
+}
+
+/**
  * Draw diagonal hatching pattern for empty areas (chunk -1)
  */
 export function drawDiagonalHatch(
@@ -16,35 +51,8 @@ export function drawDiagonalHatch(
 	width: number,
 	height: number
 ): void {
-	const patternSize = 12;
-	const pattern = document.createElement('canvas');
-	pattern.width = patternSize;
-	pattern.height = patternSize;
-	const patternCtx = pattern.getContext('2d');
-	if (!patternCtx) return;
-
-	// Draw diagonal lines
-	patternCtx.strokeStyle = 'rgba(156, 163, 175, 0.4)';
-	patternCtx.lineWidth = 1;
-	
-	// Main diagonal
-	patternCtx.beginPath();
-	patternCtx.moveTo(0, patternSize);
-	patternCtx.lineTo(patternSize, 0);
-	patternCtx.stroke();
-	
-	// Additional diagonals for density
-	patternCtx.beginPath();
-	patternCtx.moveTo(-3, 3);
-	patternCtx.lineTo(3, -3);
-	patternCtx.stroke();
-	
-	patternCtx.beginPath();
-	patternCtx.moveTo(9, 15);
-	patternCtx.lineTo(15, 9);
-	patternCtx.stroke();
-
-	const fillPattern = ctx.createPattern(pattern, 'repeat');
+	const source = getHatchPatternSource();
+	const fillPattern = ctx.createPattern(source, 'repeat');
 	if (fillPattern) {
 		ctx.fillStyle = fillPattern;
 		ctx.fillRect(x, y, width, height);
@@ -52,50 +60,122 @@ export function drawDiagonalHatch(
 }
 
 /**
- * Draw beat grid lines
+ * Draw beat grid lines (static/inactive style only).
+ * Batches lines by type into single stroke calls to avoid per-line save/restore overhead.
  */
 export function drawBeatGrid(
 	ctx: CanvasRenderingContext2D,
 	beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }>,
-	height: number,
-	activeBeatLineIndices?: Set<number>
+	height: number
 ): void {
-	beatLines.forEach((line, index) => {
-		const isActive = activeBeatLineIndices?.has(index) ?? false;
-		const isHalfBeat = line.type === 'half-beat';
-		
-		ctx.save();
-		
-		if (isActive) {
-			ctx.strokeStyle = isHalfBeat ? 'rgba(251, 191, 36, 0.3)' : '#fbbf24';
-			ctx.lineWidth = isHalfBeat ? 0.8 : 3;
-			if (!isHalfBeat) {
-				ctx.shadowColor = 'rgba(251, 191, 36, 0.8)';
-				ctx.shadowBlur = 4;
-			}
-		} else {
-			switch (line.type) {
-				case 'quarter':
-					ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-					ctx.lineWidth = 1.5;
-					break;
-				case 'beat':
-					ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-					ctx.lineWidth = 1;
-					break;
-				default:
-					ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-					ctx.lineWidth = 0.5;
-			}
+	// Batch lines by type for efficient drawing
+	const quarterLines: number[] = [];
+	const beatLineXs: number[] = [];
+	const halfBeatLines: number[] = [];
+
+	for (const line of beatLines) {
+		switch (line.type) {
+			case 'quarter':
+				quarterLines.push(line.x);
+				break;
+			case 'beat':
+				beatLineXs.push(line.x);
+				break;
+			default:
+				halfBeatLines.push(line.x);
 		}
-		
+	}
+
+	// Draw half-beat lines (lightest)
+	if (halfBeatLines.length > 0) {
+		ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+		ctx.lineWidth = 0.5;
 		ctx.beginPath();
-		ctx.moveTo(line.x, 0);
-		ctx.lineTo(line.x, height);
+		for (const x of halfBeatLines) {
+			ctx.moveTo(x, 0);
+			ctx.lineTo(x, height);
+		}
 		ctx.stroke();
-		
+	}
+
+	// Draw beat lines (medium)
+	if (beatLineXs.length > 0) {
+		ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+		ctx.lineWidth = 1;
+		ctx.beginPath();
+		for (const x of beatLineXs) {
+			ctx.moveTo(x, 0);
+			ctx.lineTo(x, height);
+		}
+		ctx.stroke();
+	}
+
+	// Draw quarter lines (brightest)
+	if (quarterLines.length > 0) {
+		ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+		ctx.lineWidth = 1.5;
+		ctx.beginPath();
+		for (const x of quarterLines) {
+			ctx.moveTo(x, 0);
+			ctx.lineTo(x, height);
+		}
+		ctx.stroke();
+	}
+}
+
+/**
+ * Draw active beat line flash highlights on an overlay canvas.
+ * Only draws the lines that are currently active (flashing).
+ */
+export function drawActiveBeatFlash(
+	ctx: CanvasRenderingContext2D,
+	beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }>,
+	height: number,
+	activeIndices: Set<number>
+): void {
+	if (activeIndices.size === 0) return;
+
+	// Batch active lines by style (half-beat vs full beat)
+	const activeHalfBeatXs: number[] = [];
+	const activeBeatXs: number[] = [];
+
+	for (const index of activeIndices) {
+		const line = beatLines[index];
+		if (!line) continue;
+		if (line.type === 'half-beat') {
+			activeHalfBeatXs.push(line.x);
+		} else {
+			activeBeatXs.push(line.x);
+		}
+	}
+
+	// Draw active half-beat lines (subtle flash)
+	if (activeHalfBeatXs.length > 0) {
+		ctx.strokeStyle = 'rgba(251, 191, 36, 0.3)';
+		ctx.lineWidth = 0.8;
+		ctx.beginPath();
+		for (const x of activeHalfBeatXs) {
+			ctx.moveTo(x, 0);
+			ctx.lineTo(x, height);
+		}
+		ctx.stroke();
+	}
+
+	// Draw active beat/quarter lines (bright flash with glow)
+	if (activeBeatXs.length > 0) {
+		ctx.save();
+		ctx.strokeStyle = '#fbbf24';
+		ctx.lineWidth = 3;
+		ctx.shadowColor = 'rgba(251, 191, 36, 0.8)';
+		ctx.shadowBlur = 4;
+		ctx.beginPath();
+		for (const x of activeBeatXs) {
+			ctx.moveTo(x, 0);
+			ctx.lineTo(x, height);
+		}
+		ctx.stroke();
 		ctx.restore();
-	});
+	}
 }
 
 /**
@@ -259,19 +339,26 @@ export function drawAnnotationPlaceholder(
 /**
  * Setup canvas for high DPI displays
  */
-export function setupHighDPICanvas(canvas: HTMLCanvasElement, width: number, height: number): void {
-	const dpr = window.devicePixelRatio || 1;
-	
+export function setupHighDPICanvas(
+	canvas: HTMLCanvasElement,
+	width: number,
+	height: number,
+	contextOptions?: CanvasRenderingContext2DSettings
+): void {
+	const dpr = 1;
+
 	// Set actual size in memory (scaled for DPI)
 	canvas.width = width * dpr;
 	canvas.height = height * dpr;
-	
+
 	// Scale down using CSS
 	canvas.style.width = `${width}px`;
 	canvas.style.height = `${height}px`;
-	
+
 	// Scale the drawing context so everything draws at the correct size
-	const ctx = canvas.getContext('2d');
+	// willReadFrequently: false hints to the browser to keep the canvas GPU-accelerated
+	const mergedOptions = { willReadFrequently: false, ...contextOptions };
+	const ctx = canvas.getContext('2d', mergedOptions);
 	if (ctx) {
 		ctx.scale(dpr, dpr);
 	}

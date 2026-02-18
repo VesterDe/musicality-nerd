@@ -199,6 +199,7 @@
 						<div><kbd class="bg-gray-700 px-1 rounded">Space</kbd> Play/Pause</div>
 						<div><kbd class="bg-gray-700 px-1 rounded">←</kbd> Jump back 8 beats</div>
 						<div><kbd class="bg-gray-700 px-1 rounded">→</kbd> Jump forward 8 beats</div>
+						<div><kbd class="bg-gray-700 px-1 rounded">F</kbd> Scroll to playhead</div>
 						<div class="pt-2 border-t border-gray-700">
 							<div><kbd class="bg-gray-700 px-1 rounded">M</kbd> Toggle annotation mode</div>
 							<div><kbd class="bg-gray-700 px-1 rounded">A</kbd> Create annotation (hold while playing)</div>

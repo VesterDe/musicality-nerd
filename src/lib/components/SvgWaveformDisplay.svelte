@@ -13,7 +13,13 @@
 		type WaveformConfig,
 		type ChunkBounds
 	} from '../utils/svgWaveform';
-	import { getMarkerPosition, getEffectiveRange, fractionRangeToTimeRange, type LoopMarkerPair } from '../utils/loopMarkers';
+	import { drawActiveBeatFlash } from '../utils/canvasWaveform';
+	import {
+		getMarkerPosition,
+		getEffectiveRange,
+		fractionRangeToTimeRange,
+		type LoopMarkerPair
+	} from '../utils/loopMarkers';
 
 	interface Props {
 		currentTime: number;
@@ -25,7 +31,12 @@
 		rowHeight?: number;
 		isPlaying?: boolean;
 		rectsPerBeatMode?: 'auto' | number;
-		onChunkLoop?: (chunkIndex: number, startTime: number, endTime: number, shiftKey: boolean) => void;
+		onChunkLoop?: (
+			chunkIndex: number,
+			startTime: number,
+			endTime: number,
+			shiftKey: boolean
+		) => void;
 		onClearLoop?: () => void;
 		loopingChunkIndices?: Set<number>;
 		loopMarkerPositions?: Map<number, LoopMarkerPair>;
@@ -290,6 +301,24 @@
 	class PlayheadAnimator {
 		private rafId: number | null = null;
 		private isRunning = false;
+		private lastActiveChunkIndex: number | null = null;
+		// DEBUG counters
+		private _overlayDraws = 0;
+		private _beatFlashDraws = 0;
+		private _debugTimer: ReturnType<typeof setInterval> | null = null;
+		private _startDebugLog(): void {
+			if (!this._debugTimer) {
+				this._debugTimer = setInterval(() => {
+					if (this._overlayDraws > 0) {
+						console.log(
+							`[PlayheadAnimator] overlay draws: ${this._overlayDraws}, beat flashes: ${this._beatFlashDraws} (last 2s)`
+						);
+						this._overlayDraws = 0;
+						this._beatFlashDraws = 0;
+					}
+				}, 2000);
+			}
+		}
 		private getCurrentTime: () => number;
 		private computePosition: (
 			time: number
@@ -302,6 +331,8 @@
 				height: number;
 			}
 		> = new Map();
+		// Beat lines for the overlay (shared across all non-special chunks)
+		private beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }> = [];
 
 		constructor(
 			getCurrentTime: () => number,
@@ -311,6 +342,52 @@
 		) {
 			this.getCurrentTime = getCurrentTime;
 			this.computePosition = computePosition;
+		}
+
+		/**
+		 * Update the beat line positions used for overlay flash rendering.
+		 * Called when beatGrouping or containerWidth changes.
+		 */
+		setBeatLines(lines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }>): void {
+			this.beatLines = lines;
+		}
+
+		/**
+		 * Compute which beat lines are currently active (within flash window).
+		 * Uses component closure variables: bpm, beatOffset, chunkDuration, beatGrouping.
+		 */
+		private _beatDebugTimer = 0;
+		private computeActiveBeatIndices(time: number, chunkIndex: number): Set<number> {
+			const indices = new Set<number>();
+			if (chunkIndex === -1) return indices; // No beat grid on special chunk
+
+			const offsetInSeconds = beatOffset / 1000;
+			const beatDuration = 60 / bpm;
+			const flashDuration = 0.1; // 100ms window
+			const gridTime = time + offsetInSeconds;
+
+			const chunkStartGridTime = chunkIndex * chunkDuration;
+
+			// DEBUG: log computation values once per second
+			const now = performance.now();
+			if (now - this._beatDebugTimer > 1000) {
+				this._beatDebugTimer = now;
+				const firstBeatTime = chunkStartGridTime + 0.5 * beatDuration;
+				const lastBeatTime = chunkStartGridTime + (beatGrouping - 0.5) * beatDuration;
+				console.log(
+					`[BeatFlash] time=${time.toFixed(3)} gridTime=${gridTime.toFixed(3)} chunk=${chunkIndex} chunkStart=${chunkStartGridTime.toFixed(3)} beatRange=[${firstBeatTime.toFixed(3)}..${lastBeatTime.toFixed(3)}] bpm=${bpm} beatDur=${beatDuration.toFixed(4)} beatGrouping=${beatGrouping} beatLines=${this.beatLines.length}`
+				);
+			}
+
+			let lineIndex = 0;
+			for (let i = 0.5; i < beatGrouping; i += 0.5) {
+				const beatLineGridTime = chunkStartGridTime + i * beatDuration;
+				if (Math.abs(gridTime - beatLineGridTime) <= flashDuration / 2) {
+					indices.add(lineIndex);
+				}
+				lineIndex++;
+			}
+			return indices;
 		}
 
 		/**
@@ -343,23 +420,30 @@
 		private updatePosition(time: number): void {
 			const pos = this.computePosition(time);
 			if (!pos) return;
+			this._overlayDraws++;
+			this._startDebugLog();
 
-			// Clear all playhead canvases first
-			for (const [index, layer] of this.chunkLayers.entries()) {
-				if (layer.ctx && layer.canvas) {
-					// Clear entire canvas (already scaled for DPR)
-					layer.ctx.clearRect(0, 0, layer.canvas.width, layer.canvas.height);
+			// Only clear the previously active chunk's canvas (not all registered chunks)
+			if (this.lastActiveChunkIndex !== null && this.lastActiveChunkIndex !== pos.chunkIndex) {
+				const prevLayer = this.chunkLayers.get(this.lastActiveChunkIndex);
+				if (prevLayer?.ctx && prevLayer?.canvas) {
+					prevLayer.ctx.clearRect(0, 0, prevLayer.canvas.width, prevLayer.canvas.height);
 				}
 			}
 
 			// Show and position playhead for the active chunk
 			const activeLayer = this.chunkLayers.get(pos.chunkIndex);
 			if (!activeLayer || !activeLayer.ctx || !activeLayer.canvas) {
+				this.lastActiveChunkIndex = pos.chunkIndex;
 				return;
 			}
 
+			// Clear current chunk's canvas before redrawing
+			activeLayer.ctx.clearRect(0, 0, activeLayer.canvas.width, activeLayer.canvas.height);
+			this.lastActiveChunkIndex = pos.chunkIndex;
+
 			const roundedX = Math.round(pos.x);
-			const dpr = window.devicePixelRatio || 1;
+			const dpr = 1;
 			// Canvas context is already scaled by setupHighDPICanvas, so use logical coordinates
 			const logicalHeight = activeLayer.height / dpr;
 
@@ -410,6 +494,15 @@
 			// Reset shadow
 			activeLayer.ctx.shadowColor = 'transparent';
 			activeLayer.ctx.shadowBlur = 0;
+
+			// Draw active beat line flash on the overlay (avoids main canvas redraws)
+			if (this.beatLines.length > 0) {
+				const activeIndices = this.computeActiveBeatIndices(time, pos.chunkIndex);
+				if (activeIndices.size > 0) {
+					this._beatFlashDraws++;
+					drawActiveBeatFlash(activeLayer.ctx, this.beatLines, logicalHeight, activeIndices);
+				}
+			}
 		}
 
 		/**
@@ -455,6 +548,11 @@
 		dispose(): void {
 			this.setPlayingState(false);
 			this.chunkLayers.clear();
+			this.lastActiveChunkIndex = null;
+			if (this._debugTimer) {
+				clearInterval(this._debugTimer);
+				this._debugTimer = null;
+			}
 		}
 	}
 
@@ -610,6 +708,46 @@
 		return indices;
 	});
 
+	// --- Per-chunk render cache ---
+	// Caches generated waveform data so that scrolling (which only changes visibility)
+	// returns the SAME array references for already-visible chunks. Svelte's fine-grained
+	// comparison sees unchanged references and skips downstream $effect redraws.
+	type ChunkRenderData = {
+		waveformBars: Array<{
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+			isEmpty?: boolean;
+			annotationColors?: Array<{ color: string; startY: number; endY: number }>;
+		}>;
+		waveformBarsPerStem:
+			| Array<Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }>>
+			| undefined;
+		beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }>;
+		headerInfo: string;
+		cacheKey: string;
+	};
+	const chunkRenderCache = new Map<number, ChunkRenderData>();
+
+	// Shared beat grid for all non-special chunks (same positions for every chunk)
+	let sharedBeatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }> = [];
+	let sharedBeatLinesKey = '';
+
+	function getSharedBeatLines(): Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }> {
+		const key = `${beatGrouping}-${waveformConfig.width}-${waveformConfig.height}`;
+		if (key !== sharedBeatLinesKey) {
+			sharedBeatLines = generateBeatGrid(beatGrouping, waveformConfig.width, waveformConfig.height);
+			sharedBeatLinesKey = key;
+		}
+		return sharedBeatLines;
+	}
+
+	// Build a cache key from parameters that affect waveform generation for a chunk
+	function buildChunkCacheKey(chunkIndex: number, boundsStart: number, boundsEnd: number): string {
+		return `${chunkIndex}|${boundsStart}|${boundsEnd}|${waveformConfig.width}|${waveformConfig.height}|${targetBars}|${beatGrouping}|${beatOffset}|${chunkDuration}|${isStemMode}|${stemPeaksData.length}`;
+	}
+
 	// Heavy computation: generate waveform data for visible chunks only
 	const rawChunkData = $derived.by(() => {
 		if (
@@ -619,44 +757,48 @@
 		)
 			return [];
 
-		const startTime = performance.now();
 		const chunks = [];
-		let visibleChunkCount = 0;
-		let stemBarGenerationCount = 0;
 
-		// OPTIMIZATION: Only process chunks that are visible or in buffer zone
-		// We still need metadata for all chunks for scrolling/virtualization, but we only
-		// generate expensive waveform bars for visible chunks
-		// NOTE: Annotations are NOT passed here to avoid re-rendering waveforms when annotation visibility changes
+		// Collect which chunk indices are still needed so we can prune stale cache entries
+		const neededIndices = new Set<number>();
+
 		for (const meta of chunkMetadata) {
-			// Check if chunk should be rendered (visible or in buffer zone)
 			const shouldRenderContent = isChunkInRenderRange(meta.index);
 
-			// Generate waveform data only for visible chunks
-			let waveformBars: Array<{
-				x: number;
-				y: number;
-				width: number;
-				height: number;
-				isEmpty?: boolean;
-			}> = [];
-			let waveformBarsPerStem: Array<
-				Array<{ x: number; y: number; width: number; height: number; isEmpty?: boolean }>
-			> = [];
-			let beatLines: Array<{ x: number; type: 'quarter' | 'beat' | 'half-beat' }> = [];
-			let headerInfo = '';
-
 			if (shouldRenderContent) {
+				neededIndices.add(meta.index);
+				const key = buildChunkCacheKey(meta.index, meta.bounds.startSample, meta.bounds.endSample);
+				const cached = chunkRenderCache.get(meta.index);
+
+				if (cached && cached.cacheKey === key) {
+					// Cache hit — reuse same array references (no downstream Svelte updates)
+					chunks.push({
+						index: meta.index,
+						bounds: meta.bounds,
+						isSpecialChunk: meta.isSpecialChunk,
+						waveformBars: cached.waveformBars,
+						waveformBarsPerStem: cached.waveformBarsPerStem,
+						beatLines: cached.beatLines,
+						headerInfo: cached.headerInfo,
+						startTime: meta.startTime,
+						endTime: meta.endTime,
+						shouldRenderContent: true
+					});
+					continue;
+				}
+
+				// Cache miss — generate fresh data
+				let waveformBars: ChunkRenderData['waveformBars'] = [];
+				let waveformBarsPerStem: ChunkRenderData['waveformBarsPerStem'] = undefined;
+				let beatLines: ChunkRenderData['beatLines'] = [];
+				let headerInfo = '';
+
 				if (isStemMode && stemPeaksData.length > 0) {
-					// Stem mode: generate bars for each stem
 					if (meta.isSpecialChunk) {
 						const offsetInSeconds = Math.abs(beatOffset) / 1000;
 						headerInfo = `Pre-song (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${offsetInSeconds.toFixed(3)}s)`;
-
-						// Generate waveform bars for each stem
-						waveformBarsPerStem = stemPeaksData.map((stemPeaks, stemIndex) => {
-							stemBarGenerationCount++;
-							return generateWaveformBars(
+						const stemBars = stemPeaksData.map((stemPeaks) =>
+							generateWaveformBars(
 								stemPeaks,
 								meta.bounds,
 								waveformConfig.width,
@@ -665,16 +807,14 @@
 								meta.index,
 								beatOffset,
 								chunkDuration
-							);
-						});
+							)
+						);
+						waveformBarsPerStem = stemBars;
+						waveformBars = stemBars[0] || [];
 					} else {
-						// Generate beat grid
-						beatLines = generateBeatGrid(beatGrouping, waveformConfig.width, waveformConfig.height);
-
-						// Generate waveform bars for each stem
-						waveformBarsPerStem = stemPeaksData.map((stemPeaks, stemIndex) => {
-							stemBarGenerationCount++;
-							return generateWaveformBars(
+						beatLines = getSharedBeatLines();
+						const stemBars = stemPeaksData.map((stemPeaks) =>
+							generateWaveformBars(
 								stemPeaks,
 								meta.bounds,
 								waveformConfig.width,
@@ -683,23 +823,19 @@
 								meta.index,
 								beatOffset,
 								chunkDuration
-							);
-						});
-
-						const startTime = meta.bounds.startTimeMs / 1000;
-						const endTime = meta.bounds.endTimeMs / 1000;
+							)
+						);
+						waveformBarsPerStem = stemBars;
+						waveformBars = stemBars[0] || [];
+						const st = meta.bounds.startTimeMs / 1000;
+						const et = meta.bounds.endTimeMs / 1000;
 						const startingBeat = meta.index * beatGrouping + 1;
-						headerInfo = `Chunk ${meta.index + 1} (${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s) Beats ${startingBeat} - ${startingBeat + beatGrouping - 1}`;
+						headerInfo = `Chunk ${meta.index + 1} (${st.toFixed(1)}s - ${et.toFixed(1)}s) Beats ${startingBeat} - ${startingBeat + beatGrouping - 1}`;
 					}
-					// For backward compatibility, use first stem's bars
-					waveformBars = waveformBarsPerStem[0] || [];
 				} else {
-					// Single track mode (existing logic)
 					if (meta.isSpecialChunk) {
 						const offsetInSeconds = Math.abs(beatOffset) / 1000;
 						headerInfo = `Pre-song (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${offsetInSeconds.toFixed(3)}s)`;
-
-						// Generate waveform bars for special chunk (includes empty and song bars)
 						waveformBars = generateWaveformBars(
 							peaksData!,
 							meta.bounds,
@@ -711,10 +847,7 @@
 							chunkDuration
 						);
 					} else {
-						// Generate beat grid
-						beatLines = generateBeatGrid(beatGrouping, waveformConfig.width, waveformConfig.height);
-
-						// Generate waveform bars
+						beatLines = getSharedBeatLines();
 						waveformBars = generateWaveformBars(
 							peaksData!,
 							meta.bounds,
@@ -725,45 +858,56 @@
 							beatOffset,
 							chunkDuration
 						);
-
-						const startTime = meta.bounds.startTimeMs / 1000;
-						const endTime = meta.bounds.endTimeMs / 1000;
+						const st = meta.bounds.startTimeMs / 1000;
+						const et = meta.bounds.endTimeMs / 1000;
 						const startingBeat = meta.index * beatGrouping + 1;
-						headerInfo = `Chunk ${meta.index + 1} (${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s) Beats ${startingBeat} - ${startingBeat + beatGrouping - 1}`;
+						headerInfo = `Chunk ${meta.index + 1} (${st.toFixed(1)}s - ${et.toFixed(1)}s) Beats ${startingBeat} - ${startingBeat + beatGrouping - 1}`;
 					}
 				}
+
+				// Store in cache
+				chunkRenderCache.set(meta.index, {
+					waveformBars,
+					waveformBarsPerStem,
+					beatLines,
+					headerInfo,
+					cacheKey: key
+				});
+
+				chunks.push({
+					index: meta.index,
+					bounds: meta.bounds,
+					isSpecialChunk: meta.isSpecialChunk,
+					waveformBars,
+					waveformBarsPerStem,
+					beatLines,
+					headerInfo,
+					startTime: meta.startTime,
+					endTime: meta.endTime,
+					shouldRenderContent: true
+				});
 			} else {
-				// For non-visible chunks, create minimal header info
-				if (meta.isSpecialChunk) {
-					const offsetInSeconds = Math.abs(beatOffset) / 1000;
-					headerInfo = `Pre-song (0s - ${chunkDuration.toFixed(1)}s, Song starts at ${offsetInSeconds.toFixed(3)}s)`;
-				} else {
-					const startTime = meta.bounds.startTimeMs / 1000;
-					const endTime = meta.bounds.endTimeMs / 1000;
-					const startingBeat = meta.index * beatGrouping + 1;
-					headerInfo = `Chunk ${meta.index + 1} (${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s) Beats ${startingBeat} - ${startingBeat + beatGrouping - 1}`;
-				}
+				// Non-visible chunk — lightweight placeholder
+				chunks.push({
+					index: meta.index,
+					bounds: meta.bounds,
+					isSpecialChunk: meta.isSpecialChunk,
+					waveformBars: [] as ChunkRenderData['waveformBars'],
+					waveformBarsPerStem: undefined,
+					beatLines: [] as ChunkRenderData['beatLines'],
+					headerInfo: '',
+					startTime: meta.startTime,
+					endTime: meta.endTime,
+					shouldRenderContent: false
+				});
 			}
-
-			chunks.push({
-				index: meta.index,
-				bounds: meta.bounds,
-				isSpecialChunk: meta.isSpecialChunk,
-				waveformBars,
-				waveformBarsPerStem: isStemMode && shouldRenderContent ? waveformBarsPerStem : undefined,
-				beatLines,
-				headerInfo,
-				startTime: meta.startTime,
-				endTime: meta.endTime,
-				shouldRenderContent
-			});
 		}
 
-		const endTime = performance.now();
-		if (endTime - startTime > 50) {
-			console.warn(
-				`rawChunkData took ${(endTime - startTime).toFixed(2)}ms: ${chunkMetadata.length} total chunks, ${visibleChunkCount} visible, ${stemBarGenerationCount} stem bar generations`
-			);
+		// Prune stale cache entries (chunks scrolled far away)
+		for (const cachedIndex of chunkRenderCache.keys()) {
+			if (!neededIndices.has(cachedIndex)) {
+				chunkRenderCache.delete(cachedIndex);
+			}
 		}
 
 		return chunks;
@@ -975,6 +1119,13 @@
 		}
 	});
 
+	// Keep PlayheadAnimator's beat lines in sync with config
+	$effect(() => {
+		if (playheadAnimator) {
+			playheadAnimator.setBeatLines(generateBeatGrid(beatGrouping, containerWidth, rowHeight));
+		}
+	});
+
 	// Sync animator when playing state changes
 	$effect(() => {
 		if (playheadAnimator) {
@@ -1120,37 +1271,8 @@
 		return { chunkIndex: playheadInfo.chunkIndex, barIndex: idx };
 	});
 
-	// Compute flashing beat lines for the active chunk only
-	const activeBeatLineIndices = $derived.by(() => {
-		if (!isInitialized || audioDuration <= 0 || !playheadInfo) return new Set<number>();
-		const indices = new Set<number>();
-		const offsetInSeconds = beatOffset / 1000;
-		const beatDuration = 60 / bpm;
-		const flashDuration = 0.1; // 100ms window
-		const gridTime = currentTime + offsetInSeconds;
-
-		const chunkIndex = playheadInfo.chunkIndex;
-		if (chunkIndex === undefined || chunkIndex === null) return indices;
-
-		let chunkStartGridTime: number;
-		if (chunkIndex === -1) {
-			chunkStartGridTime = beatOffset < 0 ? -chunkDuration : 0;
-		} else {
-			chunkStartGridTime = chunkIndex * chunkDuration;
-		}
-
-		let lineIndex = 0;
-		for (let i = 0.5; i < beatGrouping; i += 0.5) {
-			const beatLineGridTime = chunkStartGridTime + i * beatDuration;
-			const timeDiff = Math.abs(gridTime - beatLineGridTime);
-			if (timeDiff <= flashDuration / 2) {
-				indices.add(lineIndex);
-			}
-			lineIndex++;
-		}
-
-		return indices;
-	});
+	// Beat line flash is now handled by PlayheadAnimator on the overlay canvas via rAF.
+	// No reactive derivation needed — eliminates ~10Hz full canvas redraws during playback.
 
 	// Notify parent when annotation modal state changes
 	$effect(() => {
@@ -1480,7 +1602,12 @@
 		editingAnnotation = null;
 	}
 
-	function toggleChunkLoop(chunkIndex: number, startTime: number, endTime: number, shiftKey: boolean) {
+	function toggleChunkLoop(
+		chunkIndex: number,
+		startTime: number,
+		endTime: number,
+		shiftKey: boolean
+	) {
 		console.log('Toggle chunk loop:', { chunkIndex, startTime, endTime, chunkDuration, shiftKey });
 		// Always call onChunkLoop for individual chunk toggling - it handles both add and remove
 		onChunkLoop?.(chunkIndex, startTime, endTime, shiftKey);
@@ -1704,7 +1831,9 @@
 		if (draggingMarkerChunkIndex === null) return null;
 
 		// Find the chunk element by data-chunk-index
-		const chunkElements = document.querySelectorAll(`[data-chunk-index="${draggingMarkerChunkIndex}"]`);
+		const chunkElements = document.querySelectorAll(
+			`[data-chunk-index="${draggingMarkerChunkIndex}"]`
+		);
 		if (chunkElements.length === 0) return null;
 
 		const chunkElement = chunkElements[0];
@@ -1718,7 +1847,8 @@
 	}
 
 	function handleLoopMarkerDragMove(event: MouseEvent) {
-		if (!isDraggingLoopMarker || draggingMarkerChunkIndex === null || draggingMarkerWhich === null) return;
+		if (!isDraggingLoopMarker || draggingMarkerChunkIndex === null || draggingMarkerWhich === null)
+			return;
 
 		const fraction = computeLoopMarkerFraction(event.clientX);
 		if (fraction !== null) {
@@ -1842,7 +1972,6 @@
 			exportingChunks.delete(chunkIndex);
 		}
 	}
-
 </script>
 
 <div class="flex flex-col space-y-4">
@@ -1867,11 +1996,15 @@
 	<div bind:this={waveformContainer} class="relative w-full" style="min-height: 100vh;">
 		<div
 			bind:this={scrollContainer}
-			class="w-full overflow-y-auto scrollbar-hide"
+			class="scrollbar-hide w-full overflow-y-auto"
 			style="height: 100vh; max-height: 100vh; overflow-anchor: none;"
 		>
 			<!-- Spacer for total height to maintain scrollbar - uses fixed height based on total chunks -->
-			<div class="bg-gray-950" style="height: {chunkMetadata.length * chunkHeight}px; min-height: 100vh; position: relative;">
+			<div
+				class="bg-gray-950"
+				style="height: {chunkMetadata.length *
+					chunkHeight}px; min-height: 100vh; position: relative;"
+			>
 				<!-- Visible chunks positioned with transform -->
 				<div style="position: absolute; top: {virtualWindow.offsetTop}px; left: 0; right: 0;">
 					<div class="flex flex-col gap-3">
@@ -1893,16 +2026,15 @@
 									annotations={chunk.annotations}
 									placeholderAnnotation={chunk.placeholderAnnotation}
 									isLooping={chunk.isLooping}
-									loopMarkerPosition={chunk.isLooping ? getMarkerPosition(chunk.index, loopMarkerPositions) : null}
+									loopMarkerPosition={chunk.isLooping
+										? getMarkerPosition(chunk.index, loopMarkerPositions)
+										: null}
 									onLoopMarkerDragStart={handleLoopMarkerDragStart}
 									hasActiveLoops={loopingChunkIndices.size > 0}
 									isActiveChunk={playheadInfo?.chunkIndex === chunk.index}
 									activeBarIndex={playheadInfo?.chunkIndex === chunk.index && activeBarInfo
 										? activeBarInfo.barIndex
 										: -1}
-									activeBeatLineIndices={playheadInfo?.chunkIndex === chunk.index
-										? activeBeatLineIndices
-										: undefined}
 									{waveformConfig}
 									{chunkDuration}
 									{beatOffset}

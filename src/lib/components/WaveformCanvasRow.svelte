@@ -7,11 +7,10 @@
 		drawDiagonalHatch,
 		drawBeatGrid,
 		drawWaveformBars,
-		drawActiveBarFlash,
 		drawSongStartMarker,
 		drawAnnotationPlaceholder,
 		drawBeatNumbers,
-		setupHighDPICanvas
+		setupHighDPICanvas,
 	} from '../utils/canvasWaveform';
 	import { timeToPixel } from '../utils/svgWaveform';
 	import { getEffectiveRange, type LoopMarkerPair } from '../utils/loopMarkers';
@@ -45,7 +44,6 @@
 		onLoopMarkerDragStart?: (chunkIndex: number, which: 'a' | 'b', clientX: number) => void;
 		hasActiveLoops?: boolean;
 		isActiveChunk: boolean;
-		activeBeatLineIndices?: Set<number>;
 		activeBarIndex: number;
 		waveformConfig: WaveformConfig;
 		chunkDuration: number;
@@ -102,7 +100,6 @@
 		onLoopMarkerDragStart,
 		hasActiveLoops = false,
 		isActiveChunk,
-		activeBeatLineIndices,
 		activeBarIndex,
 		waveformConfig,
 		chunkDuration,
@@ -142,7 +139,7 @@
 	// Initialize canvas context
 	onMount(() => {
 		if (canvasElement) {
-			setupHighDPICanvas(canvasElement, waveformConfig.width, waveformConfig.height);
+			setupHighDPICanvas(canvasElement, waveformConfig.width, waveformConfig.height, { alpha: false });
 			ctx = canvasElement.getContext('2d');
 			redraw();
 		}
@@ -165,7 +162,7 @@
 		const height = waveformConfig.height;
 
 		if (canvasElement) {
-			setupHighDPICanvas(canvasElement, width, height);
+			setupHighDPICanvas(canvasElement, width, height, { alpha: false });
 			// Re-get context after resize (context is scaled by setupHighDPICanvas)
 			ctx = canvasElement.getContext('2d');
 		}
@@ -190,8 +187,24 @@
 	});
 
 	// Redraw function
+	// DEBUG: track main canvas redraw frequency
+	let _redrawCount = 0;
+	let _redrawLogTimer: ReturnType<typeof setInterval> | null = null;
+	function _startRedrawLog() {
+		if (!_redrawLogTimer) {
+			_redrawLogTimer = setInterval(() => {
+				if (_redrawCount > 0) {
+					console.log(`[MainCanvas chunk=${chunkIndex}] redraws in last 2s: ${_redrawCount}`);
+					_redrawCount = 0;
+				}
+			}, 2000);
+		}
+	}
+
 	function redraw() {
 		if (!ctx || !canvasElement) return;
+		_redrawCount++;
+		_startRedrawLog();
 
 		const width = waveformConfig.width;
 		const height = waveformConfig.height;
@@ -229,8 +242,8 @@
 					: ((chunkDuration - offsetInSeconds) / chunkDuration) * width;
 			drawSongStartMarker(ctx, songStartX, height);
 		} else {
-			// Draw beat grid
-			drawBeatGrid(ctx, beatLines, height, activeBeatLineIndices);
+			// Draw beat grid (static style only — active beat flash is on the overlay canvas)
+			drawBeatGrid(ctx, beatLines, height);
 
 			// Draw beat numbers if enabled
 			if (showBeatNumbers) {
@@ -242,14 +255,6 @@
 				drawWaveformBars(ctx, waveformBars, waveformBarsPerStem, stemColors, stemEnabled);
 			} else {
 				drawWaveformBars(ctx, waveformBars);
-			}
-
-			// Draw active bar flash overlay
-			if (isActiveChunk && activeBarIndex >= 0 && activeBarIndex < waveformBars.length) {
-				const activeBar = waveformBars[activeBarIndex];
-				if (activeBar && activeBar.annotationColors && activeBar.annotationColors.length > 0) {
-					drawActiveBarFlash(ctx, activeBar);
-				}
 			}
 		}
 
@@ -269,26 +274,37 @@
 		}
 	}
 
-	// Redraw when relevant props change
+	// Redraw when relevant props change.
+	// activeBarIndex, isActiveChunk, activeBeatLineIndices intentionally excluded —
+	// they change rapidly during playback. Beat flash is rendered on the overlay canvas
+	// by PlayheadAnimator via rAF, so the main canvas stays static during playback.
+	let _prevDeps: Record<string, unknown> = {};
 	$effect(() => {
-		// Track all dependencies that affect rendering
-		waveformBars;
-		waveformBarsPerStem;
-		stemColors;
-		stemEnabled;
-		beatLines;
-		isSpecialChunk;
-		beatOffset;
-		chunkDuration;
-		activeBeatLineIndices;
-		isActiveChunk;
-		activeBarIndex;
-		waveformConfig.width;
-		waveformConfig.height;
-		placeholderAnnotation; // Track placeholder changes for preview
-		bounds; // Track bounds changes
-		showBeatNumbers; // Track beat numbers toggle
-		beatsPerLine; // Track beats per line for beat numbers
+		const deps: Record<string, unknown> = {
+			waveformBars,
+			waveformBarsPerStem,
+			stemColors,
+			stemEnabled,
+			beatLines,
+			isSpecialChunk,
+			beatOffset,
+			chunkDuration,
+			'waveformConfig.width': waveformConfig.width,
+			'waveformConfig.height': waveformConfig.height,
+			placeholderAnnotation,
+			bounds,
+			showBeatNumbers,
+			beatsPerLine,
+		};
+
+		// DEBUG: log which dependency changed (skip first run)
+		if (_prevDeps.waveformBars !== undefined) {
+			const changed = Object.keys(deps).filter(k => deps[k] !== _prevDeps[k]);
+			if (changed.length > 0) {
+				console.log(`[MainCanvas chunk=${chunkIndex}] redraw triggered by:`, changed);
+			}
+		}
+		_prevDeps = { ...deps };
 
 		redraw();
 	});
@@ -368,10 +384,11 @@
 		{/if}
 
 		<!-- Playhead overlay canvas (drawn by PlayheadAnimator via rAF) -->
+		<!-- Hidden when not active to reduce compositor layer count -->
 		<canvas
 			bind:this={playheadCanvas}
 			class="pointer-events-none absolute top-0 left-0"
-			style="width: {waveformConfig.width}px; height: {waveformConfig.height}px;"
+			style="width: {waveformConfig.width}px; height: {waveformConfig.height}px;{isActiveChunk ? '' : ' display: none;'}"
 		></canvas>
 
 		<!-- Annotations for this chunk (inside canvas container for proper alignment) -->
