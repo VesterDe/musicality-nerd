@@ -302,27 +302,16 @@
 		private rafId: number | null = null;
 		private isRunning = false;
 		private lastActiveChunkIndex: number | null = null;
-		// DEBUG counters
-		private _overlayDraws = 0;
-		private _beatFlashDraws = 0;
-		private _debugTimer: ReturnType<typeof setInterval> | null = null;
-		private _startDebugLog(): void {
-			if (!this._debugTimer) {
-				this._debugTimer = setInterval(() => {
-					if (this._overlayDraws > 0) {
-						console.log(
-							`[PlayheadAnimator] overlay draws: ${this._overlayDraws}, beat flashes: ${this._beatFlashDraws} (last 2s)`
-						);
-						this._overlayDraws = 0;
-						this._beatFlashDraws = 0;
-					}
-				}, 2000);
-			}
-		}
+		// Pre-rendered triangle+glow bitmaps (avoids per-frame shadowBlur)
+		private topTriangleCanvas: HTMLCanvasElement | null = null;
+		private bottomTriangleCanvas: HTMLCanvasElement | null = null;
+		private static readonly TRI_SIZE = 8;
+		private static readonly TRI_PAD = 4; // padding for shadow blur spread
 		private getCurrentTime: () => number;
 		private computePosition: (
 			time: number
 		) => { chunkIndex: number; chunkContainerIndex: number; x: number } | null;
+		private onTick: (() => void) | null;
 		private chunkLayers: Map<
 			number,
 			{
@@ -338,10 +327,57 @@
 			getCurrentTime: () => number,
 			computePosition: (
 				time: number
-			) => { chunkIndex: number; chunkContainerIndex: number; x: number } | null
+			) => { chunkIndex: number; chunkContainerIndex: number; x: number } | null,
+			onTick?: () => void
 		) {
 			this.getCurrentTime = getCurrentTime;
 			this.computePosition = computePosition;
+			this.onTick = onTick ?? null;
+		}
+
+		/**
+		 * Pre-render triangle+glow to offscreen canvases (called once, reused every frame)
+		 */
+		private ensureTriangleCaches(): void {
+			if (this.topTriangleCanvas) return; // already created
+
+			const size = PlayheadAnimator.TRI_SIZE;
+			const pad = PlayheadAnimator.TRI_PAD;
+			const dim = size + pad * 2;
+
+			// Top triangle (pointing down): tip at bottom-center
+			this.topTriangleCanvas = document.createElement('canvas');
+			this.topTriangleCanvas.width = dim;
+			this.topTriangleCanvas.height = dim;
+			const topCtx = this.topTriangleCanvas.getContext('2d')!;
+			topCtx.shadowColor = 'rgba(251, 191, 36, 0.8)';
+			topCtx.shadowBlur = 2;
+			topCtx.shadowOffsetX = 0;
+			topCtx.shadowOffsetY = 0;
+			topCtx.fillStyle = '#fbbf24';
+			topCtx.beginPath();
+			topCtx.moveTo(pad, pad);
+			topCtx.lineTo(pad + size, pad);
+			topCtx.lineTo(pad + size / 2, pad + size);
+			topCtx.closePath();
+			topCtx.fill();
+
+			// Bottom triangle (pointing up): tip at top-center
+			this.bottomTriangleCanvas = document.createElement('canvas');
+			this.bottomTriangleCanvas.width = dim;
+			this.bottomTriangleCanvas.height = dim;
+			const botCtx = this.bottomTriangleCanvas.getContext('2d')!;
+			botCtx.shadowColor = 'rgba(251, 191, 36, 0.8)';
+			botCtx.shadowBlur = 2;
+			botCtx.shadowOffsetX = 0;
+			botCtx.shadowOffsetY = 0;
+			botCtx.fillStyle = '#fbbf24';
+			botCtx.beginPath();
+			botCtx.moveTo(pad, pad + size);
+			botCtx.lineTo(pad + size, pad + size);
+			botCtx.lineTo(pad + size / 2, pad);
+			botCtx.closePath();
+			botCtx.fill();
 		}
 
 		/**
@@ -356,7 +392,6 @@
 		 * Compute which beat lines are currently active (within flash window).
 		 * Uses component closure variables: bpm, beatOffset, chunkDuration, beatGrouping.
 		 */
-		private _beatDebugTimer = 0;
 		private computeActiveBeatIndices(time: number, chunkIndex: number): Set<number> {
 			const indices = new Set<number>();
 			if (chunkIndex === -1) return indices; // No beat grid on special chunk
@@ -367,17 +402,6 @@
 			const gridTime = time + offsetInSeconds;
 
 			const chunkStartGridTime = chunkIndex * chunkDuration;
-
-			// DEBUG: log computation values once per second
-			const now = performance.now();
-			if (now - this._beatDebugTimer > 1000) {
-				this._beatDebugTimer = now;
-				const firstBeatTime = chunkStartGridTime + 0.5 * beatDuration;
-				const lastBeatTime = chunkStartGridTime + (beatGrouping - 0.5) * beatDuration;
-				console.log(
-					`[BeatFlash] time=${time.toFixed(3)} gridTime=${gridTime.toFixed(3)} chunk=${chunkIndex} chunkStart=${chunkStartGridTime.toFixed(3)} beatRange=[${firstBeatTime.toFixed(3)}..${lastBeatTime.toFixed(3)}] bpm=${bpm} beatDur=${beatDuration.toFixed(4)} beatGrouping=${beatGrouping} beatLines=${this.beatLines.length}`
-				);
-			}
 
 			let lineIndex = 0;
 			for (let i = 0.5; i < beatGrouping; i += 0.5) {
@@ -420,8 +444,6 @@
 		private updatePosition(time: number): void {
 			const pos = this.computePosition(time);
 			if (!pos) return;
-			this._overlayDraws++;
-			this._startDebugLog();
 
 			// Only clear the previously active chunk's canvas (not all registered chunks)
 			if (this.lastActiveChunkIndex !== null && this.lastActiveChunkIndex !== pos.chunkIndex) {
@@ -444,10 +466,9 @@
 
 			const roundedX = Math.round(pos.x);
 			const dpr = 1;
-			// Canvas context is already scaled by setupHighDPICanvas, so use logical coordinates
 			const logicalHeight = activeLayer.height / dpr;
 
-			// Draw playhead line on canvas (context is already scaled, so use logical coordinates)
+			// Draw playhead line
 			activeLayer.ctx.strokeStyle = '#fbbf24';
 			activeLayer.ctx.lineWidth = 1.5;
 			activeLayer.ctx.globalAlpha = 0.3;
@@ -457,62 +478,40 @@
 			activeLayer.ctx.stroke();
 			activeLayer.ctx.globalAlpha = 1.0;
 
-			// Draw triangles with glow effect (simulating drop-shadow filter)
-			const triangleSize = 8;
-			const triangleX = roundedX - 4;
+			// Stamp pre-rendered triangle+glow bitmaps
+			this.ensureTriangleCaches();
+			const pad = PlayheadAnimator.TRI_PAD;
+			const triangleX = roundedX - PlayheadAnimator.TRI_SIZE / 2;
 
-			// Set shadow for glow effect
-			activeLayer.ctx.shadowColor = 'rgba(251, 191, 36, 0.8)';
-			activeLayer.ctx.shadowBlur = 2;
-			activeLayer.ctx.shadowOffsetX = 0;
-			activeLayer.ctx.shadowOffsetY = 0;
-			activeLayer.ctx.fillStyle = '#fbbf24';
+			// Top triangle
+			activeLayer.ctx.drawImage(this.topTriangleCanvas!, triangleX - pad, -pad);
+			// Bottom triangle
+			activeLayer.ctx.drawImage(this.bottomTriangleCanvas!, triangleX - pad, logicalHeight - PlayheadAnimator.TRI_SIZE - pad);
 
-			// Draw top triangle (pointing down) at the top of the canvas
-			activeLayer.ctx.beginPath();
-			activeLayer.ctx.moveTo(triangleX, 0);
-			activeLayer.ctx.lineTo(triangleX + triangleSize, 0);
-			activeLayer.ctx.lineTo(triangleX + triangleSize / 2, triangleSize);
-			activeLayer.ctx.closePath();
-			activeLayer.ctx.fill();
-
-			// Draw bottom triangle (pointing up) near the bottom of the canvas
-			// Original positioning: bottomY = topY + waveformConfig.height - 10, where topY = 42 (40px header + 2px)
-			// Relative to canvas (which starts at 40px): bottomY - 40 = waveformConfig.height - 8
-			// The triangle base should be at logicalHeight - 8
-			// bottomTriangleY is the Y coordinate of the triangle's point (top), base is at bottomTriangleY + triangleSize
-			// Currently it's 1 height (triangleSize) too far up, so move it down by triangleSize
-			// Start from logicalHeight - 8 - triangleSize and move down by triangleSize
-			const bottomTriangleY = logicalHeight - 8 - triangleSize + triangleSize;
-			activeLayer.ctx.beginPath();
-			activeLayer.ctx.moveTo(triangleX, bottomTriangleY + triangleSize);
-			activeLayer.ctx.lineTo(triangleX + triangleSize, bottomTriangleY + triangleSize);
-			activeLayer.ctx.lineTo(triangleX + triangleSize / 2, bottomTriangleY);
-			activeLayer.ctx.closePath();
-			activeLayer.ctx.fill();
-
-			// Reset shadow
-			activeLayer.ctx.shadowColor = 'transparent';
-			activeLayer.ctx.shadowBlur = 0;
-
-			// Draw active beat line flash on the overlay (avoids main canvas redraws)
+			// Draw active beat line flash on the overlay
 			if (this.beatLines.length > 0) {
 				const activeIndices = this.computeActiveBeatIndices(time, pos.chunkIndex);
 				if (activeIndices.size > 0) {
-					this._beatFlashDraws++;
 					drawActiveBeatFlash(activeLayer.ctx, this.beatLines, logicalHeight, activeIndices);
 				}
 			}
 		}
 
 		/**
-		 * Animation loop
+		 * Animation loop (capped at ~90fps to avoid wasting cycles on high-refresh displays)
 		 */
-		private animate = (): void => {
+		private static readonly FRAME_INTERVAL = 1000 / 90; // ~11.1ms
+		private lastFrameTime = 0;
+		private animate = (now: number): void => {
 			if (!this.isRunning) return;
 
-			const time = this.getCurrentTime();
-			this.updatePosition(time);
+			// Everything capped at ~60fps — tick + draw in same gate
+			if (now - this.lastFrameTime >= PlayheadAnimator.FRAME_INTERVAL) {
+				this.lastFrameTime = now;
+				this.onTick?.();
+				const time = this.getCurrentTime();
+				this.updatePosition(time);
+			}
 
 			this.rafId = requestAnimationFrame(this.animate);
 		};
@@ -526,6 +525,7 @@
 			this.isRunning = playing;
 
 			if (playing) {
+				this.lastFrameTime = 0; // draw immediately on first frame
 				this.rafId = requestAnimationFrame(this.animate);
 			} else {
 				if (this.rafId !== null) {
@@ -549,10 +549,8 @@
 			this.setPlayingState(false);
 			this.chunkLayers.clear();
 			this.lastActiveChunkIndex = null;
-			if (this._debugTimer) {
-				clearInterval(this._debugTimer);
-				this._debugTimer = null;
-			}
+			this.topTriangleCanvas = null;
+			this.bottomTriangleCanvas = null;
 		}
 	}
 
@@ -1094,7 +1092,11 @@
 				);
 			};
 
-			const animator = new PlayheadAnimator(() => audioEngine.getCurrentTime(), computePos);
+			const animator = new PlayheadAnimator(
+				() => audioEngine.getCurrentTime(),
+				computePos,
+				() => audioEngine.tick()
+			);
 
 			playheadAnimator = animator;
 
@@ -1133,12 +1135,11 @@
 		}
 	});
 
-	// Sync animator when time changes (for seeks/pauses) - guard against infinite loops
+	// Sync animator when time changes during pause/seek only.
+	// During playback the rAF loop handles updates — no need to double-draw.
 	let lastSyncedTime = $state(0);
 	$effect(() => {
-		if (playheadAnimator && Math.abs(currentTime - lastSyncedTime) > 0.01) {
-			// Sync when time changed significantly (both playing and paused)
-			// When playing, rAF handles smooth updates, but we still sync here for seeks
+		if (playheadAnimator && !isPlaying && Math.abs(currentTime - lastSyncedTime) > 0.01) {
 			playheadAnimator.syncToTime(currentTime);
 			lastSyncedTime = currentTime;
 		}
@@ -1247,28 +1248,20 @@
 		}
 	});
 
-	// Calculate playhead position declaratively (for non-critical UI that still uses reactive values)
-	// Note: Actual playhead rendering is handled by PlayheadAnimator via rAF
-	const playheadInfo = $derived.by(() => {
-		if (!isInitialized || audioDuration <= 0) return null;
-		return computePlayheadPosition(
-			currentTime,
-			chunkDuration,
-			containerWidth,
-			beatOffset,
-			audioDuration
-		);
-	});
-
-	// Compute currently active bar index for the active chunk only
-	const activeBarInfo = $derived.by(() => {
-		if (!playheadInfo || !isInitialized || audioDuration <= 0) return null;
-		const currentChunk = rawChunkData.find((chunk) => chunk.index === playheadInfo.chunkIndex);
-		if (!currentChunk) return null;
-		const barCount = targetBars;
-		const barWidth = containerWidth / barCount;
-		const idx = Math.max(0, Math.min(barCount - 1, Math.floor(playheadInfo.x / barWidth)));
-		return { chunkIndex: playheadInfo.chunkIndex, barIndex: idx };
+	// Memoized active chunk index — returns a primitive number so Svelte skips
+	// downstream updates when the playhead stays in the same chunk (~10Hz currentTime
+	// changes but chunk boundary crossings are rare, maybe once every few seconds).
+	// Actual playhead rendering is handled by PlayheadAnimator via rAF.
+	const activeChunkIndex = $derived.by(() => {
+		if (!isInitialized || audioDuration <= 0) return -2;
+		const time = currentTime;
+		if (beatOffset > 0) {
+			return time < chunkDuration ? -1 : Math.floor((time - chunkDuration) / chunkDuration);
+		} else if (beatOffset < 0) {
+			const offsetInSeconds = Math.abs(beatOffset) / 1000;
+			return time < offsetInSeconds ? -1 : Math.floor((time - offsetInSeconds) / chunkDuration);
+		}
+		return Math.floor(time / chunkDuration);
 	});
 
 	// Beat line flash is now handled by PlayheadAnimator on the overlay canvas via rAF.
@@ -2031,10 +2024,7 @@
 										: null}
 									onLoopMarkerDragStart={handleLoopMarkerDragStart}
 									hasActiveLoops={loopingChunkIndices.size > 0}
-									isActiveChunk={playheadInfo?.chunkIndex === chunk.index}
-									activeBarIndex={playheadInfo?.chunkIndex === chunk.index && activeBarInfo
-										? activeBarInfo.barIndex
-										: -1}
+									isActiveChunk={activeChunkIndex === chunk.index}
 									{waveformConfig}
 									{chunkDuration}
 									{beatOffset}

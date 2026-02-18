@@ -44,7 +44,6 @@
 		onLoopMarkerDragStart?: (chunkIndex: number, which: 'a' | 'b', clientX: number) => void;
 		hasActiveLoops?: boolean;
 		isActiveChunk: boolean;
-		activeBarIndex: number;
 		waveformConfig: WaveformConfig;
 		chunkDuration: number;
 		beatOffset: number;
@@ -100,7 +99,6 @@
 		onLoopMarkerDragStart,
 		hasActiveLoops = false,
 		isActiveChunk,
-		activeBarIndex,
 		waveformConfig,
 		chunkDuration,
 		beatOffset,
@@ -187,24 +185,8 @@
 	});
 
 	// Redraw function
-	// DEBUG: track main canvas redraw frequency
-	let _redrawCount = 0;
-	let _redrawLogTimer: ReturnType<typeof setInterval> | null = null;
-	function _startRedrawLog() {
-		if (!_redrawLogTimer) {
-			_redrawLogTimer = setInterval(() => {
-				if (_redrawCount > 0) {
-					console.log(`[MainCanvas chunk=${chunkIndex}] redraws in last 2s: ${_redrawCount}`);
-					_redrawCount = 0;
-				}
-			}, 2000);
-		}
-	}
-
 	function redraw() {
 		if (!ctx || !canvasElement) return;
-		_redrawCount++;
-		_startRedrawLog();
 
 		const width = waveformConfig.width;
 		const height = waveformConfig.height;
@@ -275,36 +257,24 @@
 	}
 
 	// Redraw when relevant props change.
-	// activeBarIndex, isActiveChunk, activeBeatLineIndices intentionally excluded —
-	// they change rapidly during playback. Beat flash is rendered on the overlay canvas
+	// isActiveChunk intentionally excluded — beat flash is rendered on the overlay canvas
 	// by PlayheadAnimator via rAF, so the main canvas stays static during playback.
-	let _prevDeps: Record<string, unknown> = {};
 	$effect(() => {
-		const deps: Record<string, unknown> = {
-			waveformBars,
-			waveformBarsPerStem,
-			stemColors,
-			stemEnabled,
-			beatLines,
-			isSpecialChunk,
-			beatOffset,
-			chunkDuration,
-			'waveformConfig.width': waveformConfig.width,
-			'waveformConfig.height': waveformConfig.height,
-			placeholderAnnotation,
-			bounds,
-			showBeatNumbers,
-			beatsPerLine,
-		};
-
-		// DEBUG: log which dependency changed (skip first run)
-		if (_prevDeps.waveformBars !== undefined) {
-			const changed = Object.keys(deps).filter(k => deps[k] !== _prevDeps[k]);
-			if (changed.length > 0) {
-				console.log(`[MainCanvas chunk=${chunkIndex}] redraw triggered by:`, changed);
-			}
-		}
-		_prevDeps = { ...deps };
+		// Touch all dependencies that should trigger a redraw
+		waveformBars;
+		waveformBarsPerStem;
+		stemColors;
+		stemEnabled;
+		beatLines;
+		isSpecialChunk;
+		beatOffset;
+		chunkDuration;
+		waveformConfig.width;
+		waveformConfig.height;
+		placeholderAnnotation;
+		bounds;
+		showBeatNumbers;
+		beatsPerLine;
 
 		redraw();
 	});
@@ -388,7 +358,7 @@
 		<canvas
 			bind:this={playheadCanvas}
 			class="pointer-events-none absolute top-0 left-0"
-			style="width: {waveformConfig.width}px; height: {waveformConfig.height}px;{isActiveChunk ? '' : ' display: none;'}"
+			style="width: {waveformConfig.width}px; height: {waveformConfig.height}px;{isActiveChunk ? ' will-change: contents;' : ' display: none;'}"
 		></canvas>
 
 		<!-- Annotations for this chunk (inside canvas container for proper alignment) -->

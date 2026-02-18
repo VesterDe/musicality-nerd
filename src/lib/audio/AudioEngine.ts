@@ -15,7 +15,6 @@ export class AudioEngine {
 	private startTime = 0;
 	private pauseTime = 0;
 	private isPlaying = false;
-	private updateLoopRunning = false;
 	
 	// Stem mode support
 	private stemBuffers: AudioBuffer[] = [];
@@ -139,9 +138,6 @@ export class AudioEngine {
 		} else {
 			await this.playSingle();
 		}
-
-		// Start time update loop
-		this.startTimeUpdateLoop();
 	}
 
 	/**
@@ -342,7 +338,6 @@ export class AudioEngine {
 
 		this.pauseTime = currentPlaybackTime;
 		this.isPlaying = false;
-		this.updateLoopRunning = false;
 	}
 
 	/**
@@ -365,7 +360,6 @@ export class AudioEngine {
 		this.isPlaying = false;
 		this.pauseTime = 0;
 		this.startTime = 0;
-		this.updateLoopRunning = false;
 	}
 
 	/**
@@ -374,10 +368,7 @@ export class AudioEngine {
 	async seekTo(time: number): Promise<void> {
 		const wasPlaying = this.isPlaying;
 		const clampedTime = Math.max(0, Math.min(time, this.getDuration()));
-		
-		// Stop update loop immediately to prevent conflicts
-		this.updateLoopRunning = false;
-		
+
 		if (this.isPlaying) {
 			this.pause();
 		}
@@ -765,83 +756,60 @@ export class AudioEngine {
 	}
 
 	/**
-	 * Start the time update loop
+	 * Process one frame: handle loop boundary detection and fire onTimeUpdate.
+	 * Called externally by PlayheadAnimator's rAF loop — no self-scheduling.
 	 */
-	private startTimeUpdateLoop(): void {
-		// Prevent multiple concurrent update loops
-		if (this.updateLoopRunning) {
-			return;
-		}
-		
-		this.updateLoopRunning = true;
-		
-		const updateTime = () => {
-			if (this.isPlaying && this.updateLoopRunning) {
-				const currentTime = this.getCurrentTime();
-				
-				// Check if we need to handle segment-based looping
-				if (this.loopEnabled && this.loopSegments.length > 0) {
-					// Find which segment (if any) contains the current time
-					// Add small tolerance for timing precision issues
-					const timeTolerance = 0.01; // 10ms tolerance
-					let currentSegmentIndex = -1;
-					for (let i = 0; i < this.loopSegments.length; i++) {
-						const segment = this.loopSegments[i];
-						if (currentTime >= (segment.start - timeTolerance) && currentTime <= (segment.end + timeTolerance)) {
-							currentSegmentIndex = i;
-							break;
-						}
-					}
-					
-					// If we're not in any loop segment, jump to the next appropriate one
-					if (currentSegmentIndex === -1) {
-						// Prevent rapid consecutive jumps
-						const now = Date.now();
-						if (now - this.lastJumpTime < 250) { // 250ms minimum between jumps
-							// Skip this jump, let audio settle
-							this.onTimeUpdate?.(currentTime);
-							requestAnimationFrame(updateTime);
-							return;
-						}
-						
-						// Find the next segment to jump to
-						let nextSegmentIndex = 0;
-						for (let i = 0; i < this.loopSegments.length; i++) {
-							if (this.loopSegments[i].start > currentTime) {
-								nextSegmentIndex = i;
-								break;
-							}
-						}
-						// If no segment found after current time, loop back to first
-						
-						this.currentLoopSegmentIndex = nextSegmentIndex;
-						const nextSegment = this.loopSegments[nextSegmentIndex];
-						
-						// Perform synchronous segment jump
-						this.jumpToSegment(nextSegment.start);
-						this.lastJumpTime = now;
-						
-						// Get the NEW currentTime after the jump and update UI with correct time
-						const newCurrentTime = this.getCurrentTime();
-						this.onTimeUpdate?.(newCurrentTime);
-						
-						// Continue to next frame after the jump
-						requestAnimationFrame(updateTime);
-						return;
-					} else {
-						// We're in a valid segment, update the index
-						this.currentLoopSegmentIndex = currentSegmentIndex;
+	tick(): void {
+		if (!this.isPlaying) return;
+
+		const currentTime = this.getCurrentTime();
+
+		// Check if we need to handle segment-based looping
+		if (this.loopEnabled && this.loopSegments.length > 0) {
+			// Find which segment (if any) contains the current time
+			const timeTolerance = 0.01; // 10ms tolerance
+			let currentSegmentIndex = -1;
+			for (let i = 0; i < this.loopSegments.length; i++) {
+				const segment = this.loopSegments[i];
+				if (currentTime >= (segment.start - timeTolerance) && currentTime <= (segment.end + timeTolerance)) {
+					currentSegmentIndex = i;
+					break;
+				}
+			}
+
+			// If we're not in any loop segment, jump to the next appropriate one
+			if (currentSegmentIndex === -1) {
+				// Prevent rapid consecutive jumps
+				const now = Date.now();
+				if (now - this.lastJumpTime < 250) { // 250ms minimum between jumps
+					this.onTimeUpdate?.(currentTime);
+					return;
+				}
+
+				// Find the next segment to jump to
+				let nextSegmentIndex = 0;
+				for (let i = 0; i < this.loopSegments.length; i++) {
+					if (this.loopSegments[i].start > currentTime) {
+						nextSegmentIndex = i;
+						break;
 					}
 				}
-				
-				this.onTimeUpdate?.(currentTime);
-				requestAnimationFrame(updateTime);
+
+				this.currentLoopSegmentIndex = nextSegmentIndex;
+				const nextSegment = this.loopSegments[nextSegmentIndex];
+
+				this.jumpToSegment(nextSegment.start);
+				this.lastJumpTime = now;
+
+				// Fire callback with corrected time after jump
+				this.onTimeUpdate?.(this.getCurrentTime());
+				return;
 			} else {
-				// Stop the update loop when not playing
-				this.updateLoopRunning = false;
+				this.currentLoopSegmentIndex = currentSegmentIndex;
 			}
-		};
-		requestAnimationFrame(updateTime);
+		}
+
+		this.onTimeUpdate?.(currentTime);
 	}
 
 	/**
@@ -899,7 +867,6 @@ export class AudioEngine {
 	 */
 	dispose(): void {
 		this.stop();
-		this.updateLoopRunning = false;
 		
 		if (this.sourceNode) {
 			try {

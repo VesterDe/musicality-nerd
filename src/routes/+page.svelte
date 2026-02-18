@@ -49,7 +49,7 @@
 	// Throttling for coarse time updates (~10Hz)
 	let lastTimeUpdate = $state(0);
 	const TIME_UPDATE_INTERVAL = 100; // 100ms = 10Hz
-	
+
 	// Annotation mode state (some in store, some local)
 	let activeAnnotationSession: { startTime: number; id: string } | null = $state(null);
 	let isAKeyPressed = $state(false); // Track physical key state
@@ -67,18 +67,17 @@
 		
 		// Setup audio engine event handlers
 		audioEngine.onTimeUpdate = (time) => {
-			// Only update currentTime if user is not dragging the progress slider
-			if (!isDraggingProgress) {
-				// Throttle store updates to ~10Hz for coarse UI (labels, progress bars)
-				// The playhead position will be updated via rAF independently
-				const now = Date.now();
-				if (now - lastTimeUpdate >= TIME_UPDATE_INTERVAL) {
+			// Throttle all store updates to ~10Hz for coarse UI (labels, progress bars, beat index)
+			// The playhead position is updated via PlayheadAnimator's own rAF independently
+			const now = Date.now();
+			if (now - lastTimeUpdate >= TIME_UPDATE_INTERVAL) {
+				if (!isDraggingProgress) {
 					sessionStore.setCurrentTime(time);
-					lastTimeUpdate = now;
 				}
+				sessionStore.updateCurrentBeat();
+				lastTimeUpdate = now;
 			}
-			sessionStore.updateCurrentBeat();
-			// Keep UI state in sync with audio engine state
+			// Keep UI state in sync with audio engine state (Svelte $state skips same-value writes)
 			sessionStore.setIsPlaying(audioEngine.playing);
 		};
 
@@ -1322,14 +1321,16 @@
 		// Re-connect services
 		sessionStore.setServices(audioEngine, persistenceService);
 		
-		// Re-setup audio engine event handlers
+		// Re-setup audio engine event handlers (same throttled handler as initial setup)
 		audioEngine.onTimeUpdate = (time) => {
-			// Only update currentTime if user is not dragging the progress slider
-			if (!isDraggingProgress) {
-				sessionStore.setCurrentTime(time);
+			const now = Date.now();
+			if (now - lastTimeUpdate >= TIME_UPDATE_INTERVAL) {
+				if (!isDraggingProgress) {
+					sessionStore.setCurrentTime(time);
+				}
+				sessionStore.updateCurrentBeat();
+				lastTimeUpdate = now;
 			}
-			sessionStore.updateCurrentBeat();
-			// Keep UI state in sync with audio engine state
 			sessionStore.setIsPlaying(audioEngine.playing);
 		};
 
