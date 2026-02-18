@@ -1375,29 +1375,29 @@
 
 <main class="h-screen flex flex-col bg-gray-900 text-white overflow-hidden">
 	<!-- Header -->
-	<header class="flex-shrink-0 bg-gray-800 border-b border-gray-700 px-4 py-2.5">
+	<header class="flex-shrink-0 bg-gray-900 border-b border-gray-800 px-4 py-1.5">
 		<div class="w-full">
 			{#if sessionStore.currentSession}
 				<div class="flex items-center justify-between">
 					<button
-						class="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded-lg text-sm transition-colors"
+						class="text-sm text-gray-400 hover:text-gray-200 transition-colors"
 						onclick={returnToSongList}
 					>
-						← Song List
+						← Songs
 					</button>
 					<div class="flex-1 mx-6 flex items-center justify-center">
 						{#if isEditingSessionName}
 							<input
 								type="text"
-								class="session-name-input bg-gray-700 text-lg font-semibold text-center px-3 py-1 rounded border-2 border-blue-500 focus:outline-none focus:border-blue-400 w-full max-w-md"
+								class="session-name-input bg-gray-800 text-sm font-semibold text-center px-3 py-1 rounded border-2 border-blue-500 focus:outline-none focus:border-blue-400 w-full max-w-md"
 								bind:value={editingSessionName}
 								onkeydown={handleSessionNameKeydown}
 								onblur={handleSessionNameSave}
 								autofocus
 							/>
 						{:else}
-							<h2 
-								class="text-lg font-semibold truncate text-center cursor-pointer hover:text-blue-400 transition-colors"
+							<h2
+								class="text-sm font-semibold truncate text-center cursor-pointer hover:text-blue-400 transition-colors"
 								onclick={handleSessionNameClick}
 								title="Click to rename"
 							>
@@ -1407,12 +1407,12 @@
 					</div>
 					<!-- Hamburger menu button (mobile only) -->
 					<button
-						class="lg:hidden bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition-colors"
+						class="lg:hidden text-gray-400 hover:text-gray-200 p-1.5 rounded-lg transition-colors"
 						onclick={() => isSidebarOpen = !isSidebarOpen}
 						aria-label="Toggle sidebar"
 						aria-expanded={isSidebarOpen}
 					>
-						<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							{#if isSidebarOpen}
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
 							{:else}
@@ -1434,62 +1434,9 @@
 	<!-- Main Content -->
 	<div class="{sessionStore.currentSession ? 'flex flex-1 min-h-0' : 'flex-1 max-w-7xl mx-auto p-4 overflow-y-auto'}">
 		<!-- Main content area -->
-		<div class="{sessionStore.currentSession ? 'flex-1 p-4 space-y-6 overflow-y-auto scrollbar-hide' : 'space-y-6'}">
+		<div class="{sessionStore.currentSession ? 'flex-1 p-4 space-y-6 overflow-y-auto scrollbar-hide' : 'flex flex-col min-h-full space-y-6'}">
 		
 		{#if sessionStore.currentSession}
-			<!-- Transport Controls -->
-			<div class="bg-gray-800 rounded-lg px-4 py-1.5 sticky top-0 z-10 shadow-lg border-b border-gray-700 backdrop-blur-sm">
-				<div class="flex items-stretch gap-2.5">
-					<div class="flex items-center flex-shrink-0 -ml-4 -my-1.5">
-						<button
-							class="tooltip-bottom bg-blue-600 hover:bg-blue-700 rounded-l-lg transition-colors w-8 h-8 flex items-center justify-center"
-							data-tooltip={sessionStore.isPlaying ? 'Pause' : 'Play'}
-							aria-label={sessionStore.isPlaying ? 'Pause' : 'Play'}
-							onclick={togglePlayback}
-						>
-							{#if sessionStore.isPlaying}
-								<Pause size={14} fill="currentColor" />
-							{:else}
-								<Play size={14} fill="currentColor" />
-							{/if}
-						</button>
-						<button
-							class="tooltip-bottom bg-gray-700 hover:bg-gray-600 transition-colors w-8 h-8 flex items-center justify-center border-l border-gray-600"
-							data-tooltip="Jump to playhead"
-							aria-label="Jump to playhead"
-							onclick={scrollToPlayhead}
-						>
-							<LocateFixed size={14} />
-						</button>
-					</div>
-					
-					<div class="text-xs text-gray-400 whitespace-nowrap flex-shrink-0 min-w-[90px] self-center">
-						{formatTime(sessionStore.currentTime)} / {formatTime(sessionStore.duration)}
-					</div>
-					
-					<div class="flex-1 min-w-0">
-						<input 
-							type="range" 
-							value={sessionStore.currentTime}
-							oninput={handleProgressInput}
-							onchange={handleProgressChange}
-							onmousedown={() => isDraggingProgress = true}
-							onmouseup={() => isDraggingProgress = false}
-							ontouchstart={() => isDraggingProgress = true}
-							ontouchend={() => isDraggingProgress = false}
-							min="0"
-							max={sessionStore.duration}
-							step="0.1"
-							class="w-full h-2.5 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-						/>
-					</div>
-					
-					<div class="text-xs text-gray-400 whitespace-nowrap flex-shrink-0 self-center">
-						Beat: {sessionStore.currentBeatIndex >= 0 ? sessionStore.currentBeatIndex + 1 : '-'}
-					</div>
-				</div>
-			</div>
-
 			<!-- Spectrogram Display -->
 			{#if sessionStore.currentSession && !sessionStore.isSessionInitializing}
 					<SvgWaveformDisplay
@@ -1636,8 +1583,17 @@
 				<TempoTrainerView onClose={() => selectedMode = null} />
 			</div>
 		{/if}
+
+			{#if !sessionStore.currentSession}
+			<footer class="px-4 py-4 text-center mt-auto">
+				<p class="text-xs text-gray-500">
+					Made with ❤️ by <a href="https://vester.si/blog/me?utm_source=musicality-nerd" target="_blank" class="text-amber-500 hover:text-amber-400 transition-colors">Demjan</a>
+					· part of <a href="https://dance.tools?utm_source=musicality-nerd" target="_blank" class="text-amber-500 hover:text-amber-400 transition-colors">dance.tools</a>
+				</p>
+			</footer>
+		{/if}
 		</div>
-		
+
 		<!-- Sidebar -->
 		{#if sessionStore.currentSession}
 			<!-- Mobile: Full-screen overlay sidebar -->
@@ -1650,12 +1606,12 @@
 					tabindex="-1"
 				></div>
 				<aside 
-					class="lg:hidden fixed right-0 top-0 bottom-0 w-full max-w-sm bg-gray-800 border-l border-gray-700 overflow-y-auto z-50 shadow-2xl"
+					class="lg:hidden fixed right-0 top-0 bottom-0 w-full max-w-sm bg-gray-900 border-l border-gray-800 overflow-y-auto z-50 shadow-2xl"
 					role="dialog"
 					aria-modal="true"
 					aria-label="Settings sidebar"
 				>
-					<div class="sticky top-0 bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between z-10">
+					<div class="sticky top-0 bg-gray-900 border-b border-gray-800 px-4 py-3 flex items-center justify-between z-10">
 						<h2 class="text-lg font-semibold text-white">Settings</h2>
 						<button
 							class="p-2 rounded-lg hover:bg-gray-700 transition-colors"
@@ -1678,13 +1634,61 @@
 		{/if}
 	</div>
 	
-	<!-- Footer -->
-	<footer class="flex-shrink-0 bg-gray-800 border-t border-gray-700 px-4 py-3 text-center">
-		<p class="text-sm text-gray-400">
-			Made with ❤️ by <a href="https://vester.si/blog/me?utm_source=musicality-nerd" target="_blank" class="text-amber-500 hover:text-amber-400 transition-colors">Demjan</a>
-			· part of <a href="https://dance.tools?utm_source=musicality-nerd" target="_blank" class="text-amber-500 hover:text-amber-400 transition-colors">dance.tools</a>
-		</p>
-	</footer>
+	<!-- Transport Controls (bottom bar) -->
+	{#if sessionStore.currentSession}
+		<div class="flex-shrink-0 bg-gray-900 border-t border-gray-800 px-4 py-1.5">
+			<div class="flex items-stretch gap-2.5">
+				<div class="flex items-center flex-shrink-0 -ml-4 -my-1.5">
+					<button
+						class="bg-blue-600 hover:bg-blue-700 transition-colors w-8 h-8 flex items-center justify-center"
+						data-tooltip={sessionStore.isPlaying ? 'Pause' : 'Play'}
+						aria-label={sessionStore.isPlaying ? 'Pause' : 'Play'}
+						onclick={togglePlayback}
+					>
+						{#if sessionStore.isPlaying}
+							<Pause size={14} fill="currentColor" />
+						{:else}
+							<Play size={14} fill="currentColor" />
+						{/if}
+					</button>
+					<button
+						class="bg-gray-800 hover:bg-gray-700 transition-colors w-8 h-8 flex items-center justify-center border-l border-gray-700"
+						data-tooltip="Jump to playhead"
+						aria-label="Jump to playhead"
+						onclick={scrollToPlayhead}
+					>
+						<LocateFixed size={14} />
+					</button>
+				</div>
+
+				<div class="text-xs text-gray-400 whitespace-nowrap flex-shrink-0 min-w-[90px] self-center">
+					{formatTime(sessionStore.currentTime)} / {formatTime(sessionStore.duration)}
+				</div>
+
+				<div class="flex-1 min-w-0 self-center">
+					<input
+						type="range"
+						value={sessionStore.currentTime}
+						oninput={handleProgressInput}
+						onchange={handleProgressChange}
+						onmousedown={() => isDraggingProgress = true}
+						onmouseup={() => isDraggingProgress = false}
+						ontouchstart={() => isDraggingProgress = true}
+						ontouchend={() => isDraggingProgress = false}
+						min="0"
+						max={sessionStore.duration}
+						step="0.1"
+						class="w-full h-2.5 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+					/>
+				</div>
+
+				<div class="text-xs text-gray-400 whitespace-nowrap flex-shrink-0 self-center">
+					Beat: {sessionStore.currentBeatIndex >= 0 ? sessionStore.currentBeatIndex + 1 : '-'}
+				</div>
+			</div>
+		</div>
+	{/if}
+
 </main>
 
 <!-- Tempo Trainer Modal (Segment mode only) -->

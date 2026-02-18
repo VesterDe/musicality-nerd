@@ -60,12 +60,12 @@
 	}
 </script>
 
-<aside class="w-full lg:w-80 bg-gray-800 border-l border-gray-700 overflow-y-auto h-full" style="overflow-anchor: none;">
-	<div class="p-4 space-y-2">
+<aside class="w-full lg:w-80 bg-gray-900 border-l border-gray-800 overflow-y-auto h-full" style="overflow-anchor: none;">
+	<div class="p-3 space-y-1">
 		<!-- Playback Settings -->
-		<div class="bg-gray-900 rounded-lg overflow-hidden">
+		<div class="rounded-lg overflow-hidden">
 			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				class="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-gray-800 rounded-lg transition-colors"
 				onclick={() => togglePanel('playback')}
 			>
 				<span class="text-sm font-medium text-gray-200">Playback Settings</span>
@@ -79,16 +79,16 @@
 				</svg>
 			</button>
 			{#if openPanels.playback}
-				<div class="px-4 pb-4 pt-2 border-t border-gray-700">
+				<div class="px-4 pb-4 pt-2 border-t border-gray-800">
 					<PlaybackSettings {audioEngine} {bpmDetector} {persistenceService} {onClearAllLoops} {onExportAllLoops} {loopingChunkCount} />
 				</div>
 			{/if}
 		</div>
 		
 		<!-- Beat Offset Settings -->
-		<div class="bg-gray-900 rounded-lg overflow-hidden">
+		<div class="rounded-lg overflow-hidden">
 			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				class="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-gray-800 rounded-lg transition-colors"
 				onclick={() => togglePanel('beatOffset')}
 			>
 				<span class="text-sm font-medium text-gray-200">Beat Offset</span>
@@ -102,16 +102,16 @@
 				</svg>
 			</button>
 			{#if openPanels.beatOffset}
-				<div class="px-4 pb-4 pt-2 border-t border-gray-700">
+				<div class="px-4 pb-4 pt-2 border-t border-gray-800">
 					<BeatOffsetSettings />
 				</div>
 			{/if}
 		</div>
 		
 		<!-- Display Settings -->
-		<div class="bg-gray-900 rounded-lg overflow-hidden">
+		<div class="rounded-lg overflow-hidden">
 			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				class="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-gray-800 rounded-lg transition-colors"
 				onclick={() => togglePanel('display')}
 			>
 				<span class="text-sm font-medium text-gray-200">Display</span>
@@ -125,16 +125,16 @@
 				</svg>
 			</button>
 			{#if openPanels.display}
-				<div class="px-4 pb-4 pt-2 border-t border-gray-700">
+				<div class="px-4 pb-4 pt-2 border-t border-gray-800">
 					<DisplaySettings />
 				</div>
 			{/if}
 		</div>
 		
 		<!-- Annotation Settings -->
-		<div class="bg-gray-900 rounded-lg overflow-hidden">
+		<div class="rounded-lg overflow-hidden">
 			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				class="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-gray-800 rounded-lg transition-colors"
 				onclick={() => togglePanel('annotations')}
 			>
 				<span class="text-sm font-medium text-gray-200">Annotations</span>
@@ -148,16 +148,16 @@
 				</svg>
 			</button>
 			{#if openPanels.annotations}
-				<div class="px-4 pb-4 pt-2 border-t border-gray-700">
+				<div class="px-4 pb-4 pt-2 border-t border-gray-800">
 					<AnnotationSettings />
 				</div>
 			{/if}
 		</div>
 		
 		<!-- Info Bar -->
-		<div class="bg-gray-900 rounded-lg overflow-hidden">
+		<div class="rounded-lg overflow-hidden">
 			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				class="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-gray-800 rounded-lg transition-colors"
 				onclick={() => togglePanel('info')}
 			>
 				<span class="text-sm font-medium text-gray-200">Session Info</span>
@@ -171,16 +171,16 @@
 				</svg>
 			</button>
 			{#if openPanels.info}
-				<div class="px-4 pb-4 pt-2 border-t border-gray-700">
+				<div class="px-4 pb-4 pt-2 border-t border-gray-800">
 					<InfoBar />
 				</div>
 			{/if}
 		</div>
 
 		<!-- Keyboard Shortcuts -->
-		<div class="bg-gray-900 rounded-lg overflow-hidden">
+		<div class="rounded-lg overflow-hidden">
 			<button
-				class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-700 transition-colors"
+				class="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-gray-800 rounded-lg transition-colors"
 				onclick={() => togglePanel('keyboardShortcuts')}
 			>
 				<span class="text-sm font-medium text-gray-200">Keyboard Shortcuts</span>
@@ -194,13 +194,16 @@
 				</svg>
 			</button>
 			{#if openPanels.keyboardShortcuts}
-				<div class="px-4 pb-4 pt-2 border-t border-gray-700">
+				<div class="px-4 pb-4 pt-2 border-t border-gray-800">
 					<div class="space-y-2 text-xs text-gray-400">
 						<div><kbd class="bg-gray-700 px-1 rounded">Space</kbd> Play/Pause</div>
 						<div><kbd class="bg-gray-700 px-1 rounded">←</kbd> Jump back 8 beats</div>
 						<div><kbd class="bg-gray-700 px-1 rounded">→</kbd> Jump forward 8 beats</div>
 						<div><kbd class="bg-gray-700 px-1 rounded">F</kbd> Scroll to playhead</div>
-						<div class="pt-2 border-t border-gray-700">
+						<div class="pt-2 border-t border-gray-800">
+							<div><kbd class="bg-gray-700 px-1 rounded">Shift</kbd>+click loop Select range</div>
+						</div>
+						<div class="pt-2 border-t border-gray-800">
 							<div><kbd class="bg-gray-700 px-1 rounded">M</kbd> Toggle annotation mode</div>
 							<div><kbd class="bg-gray-700 px-1 rounded">A</kbd> Create annotation (hold while playing)</div>
 						</div>
