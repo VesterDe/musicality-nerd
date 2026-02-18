@@ -14,6 +14,7 @@
 		setupHighDPICanvas
 	} from '../utils/canvasWaveform';
 	import { timeToPixel } from '../utils/svgWaveform';
+	import { getEffectiveRange, type LoopMarkerPair } from '../utils/loopMarkers';
 	import { Download, Crosshair, Repeat, Square, LoaderCircle } from 'lucide-svelte';
 
 	interface Props {
@@ -40,6 +41,8 @@
 		annotations: Array<Annotation & { stackPosition: number }>;
 		placeholderAnnotation: (Annotation & { stackPosition: number }) | null;
 		isLooping: boolean;
+		loopMarkerPosition?: LoopMarkerPair | null;
+		onLoopMarkerDragStart?: (chunkIndex: number, which: 'a' | 'b', clientX: number) => void;
 		hasActiveLoops?: boolean;
 		isActiveChunk: boolean;
 		activeBeatLineIndices?: Set<number>;
@@ -51,7 +54,7 @@
 		onWaveformMouseDown: (event: MouseEvent, chunkIndex: number, bounds: ChunkBounds) => void;
 		onWaveformTouchStart: (event: TouchEvent, chunkIndex: number, bounds: ChunkBounds) => void;
 		onChunkExport: (chunkIndex: number, startTime: number, endTime: number) => void;
-		onToggleChunkLoop: (chunkIndex: number, startTime: number, endTime: number) => void;
+		onToggleChunkLoop: (chunkIndex: number, startTime: number, endTime: number, shiftKey: boolean) => void;
 		onEditAnnotation: (annotation: Annotation) => void;
 		onDeleteAnnotation: (annotationId: string) => void;
 		onMoveAnnotation: (annotationId: string, newStartTimeMs: number, newEndTimeMs: number) => void;
@@ -95,6 +98,8 @@
 		annotations,
 		placeholderAnnotation,
 		isLooping,
+		loopMarkerPosition = null,
+		onLoopMarkerDragStart,
 		hasActiveLoops = false,
 		isActiveChunk,
 		activeBeatLineIndices,
@@ -343,6 +348,25 @@
 			ontouchstart={handleCanvasTouchStart}
 		></canvas>
 
+		<!-- Dimmed areas outside loop markers -->
+		{#if isLooping && loopMarkerPosition}
+			{@const range = getEffectiveRange(loopMarkerPosition.markerA, loopMarkerPosition.markerB)}
+			{@const dimStartWidth = range.start * waveformConfig.width}
+			{@const rangeEndX = range.end * waveformConfig.width}
+			{#if dimStartWidth > 0}
+				<div
+					class="pointer-events-none absolute top-0 left-0"
+					style="width: {dimStartWidth}px; height: {waveformConfig.height}px; background-color: rgba(0, 0, 0, 0.5);"
+				></div>
+			{/if}
+			{#if rangeEndX < waveformConfig.width}
+				<div
+					class="pointer-events-none absolute top-0"
+					style="left: {rangeEndX}px; right: 0; height: {waveformConfig.height}px; background-color: rgba(0, 0, 0, 0.5);"
+				></div>
+			{/if}
+		{/if}
+
 		<!-- Playhead overlay canvas (drawn by PlayheadAnimator via rAF) -->
 		<canvas
 			bind:this={playheadCanvas}
@@ -409,6 +433,57 @@
 		</div>
 	</div>
 
+	<!-- Loop Marker Area (below looping rows) -->
+	{#if isLooping && loopMarkerPosition}
+		{@const range = getEffectiveRange(loopMarkerPosition.markerA, loopMarkerPosition.markerB)}
+		{@const markerAX = loopMarkerPosition.markerA * waveformConfig.width}
+		{@const markerBX = loopMarkerPosition.markerB * waveformConfig.width}
+		{@const rangeStartX = range.start * waveformConfig.width}
+		{@const rangeEndX = range.end * waveformConfig.width}
+		<div
+			class="pointer-events-none absolute left-0"
+			style="bottom: -14px; height: 14px; width: {waveformConfig.width}px;"
+		>
+			<!-- Range bar between markers -->
+			<div
+				class="absolute"
+				style="left: {rangeStartX}px; width: {rangeEndX - rangeStartX}px; top: 6px; height: 2px; background-color: rgba(59, 130, 246, 0.3);"
+			></div>
+
+			<!-- Marker A triangle -->
+			<div
+				class="pointer-events-auto absolute"
+				style="left: {markerAX - 5}px; top: 2px; cursor: ew-resize; filter: drop-shadow(0 0 2px rgba(37, 99, 235, 0.6));"
+				role="slider"
+				aria-label="Loop start marker"
+				aria-valuenow={loopMarkerPosition.markerA}
+				tabindex="-1"
+				onmousedown={(e) => { e.stopPropagation(); e.preventDefault(); onLoopMarkerDragStart?.(chunkIndex, 'a', e.clientX); }}
+				ontouchstart={(e) => { e.stopPropagation(); e.preventDefault(); if (e.touches.length > 0) onLoopMarkerDragStart?.(chunkIndex, 'a', e.touches[0].clientX); }}
+			>
+				<svg width="10" height="8" viewBox="0 0 10 8">
+					<polygon points="0,8 10,8 5,0" fill="#2563eb" />
+				</svg>
+			</div>
+
+			<!-- Marker B triangle -->
+			<div
+				class="pointer-events-auto absolute"
+				style="left: {markerBX - 5}px; top: 2px; cursor: ew-resize; filter: drop-shadow(0 0 2px rgba(37, 99, 235, 0.6));"
+				role="slider"
+				aria-label="Loop end marker"
+				aria-valuenow={loopMarkerPosition.markerB}
+				tabindex="-1"
+				onmousedown={(e) => { e.stopPropagation(); e.preventDefault(); onLoopMarkerDragStart?.(chunkIndex, 'b', e.clientX); }}
+				ontouchstart={(e) => { e.stopPropagation(); e.preventDefault(); if (e.touches.length > 0) onLoopMarkerDragStart?.(chunkIndex, 'b', e.touches[0].clientX); }}
+			>
+				<svg width="10" height="8" viewBox="0 0 10 8">
+					<polygon points="0,8 10,8 5,0" fill="#2563eb" />
+				</svg>
+			</div>
+		</div>
+	{/if}
+
 	<!-- Row Controls Column -->
 	<div
 		class="mx-1.5 flex w-7 flex-shrink-0 flex-col items-center justify-center gap-1"
@@ -439,7 +514,7 @@
 			class="tooltip-left flex h-6 w-6 items-center justify-center rounded transition-colors {isLooping
 				? 'bg-blue-600 text-white'
 				: 'text-blue-300 hover:bg-blue-700/80'}"
-			onclick={() => onToggleChunkLoop(chunkIndex, startTime, endTime)}
+			onclick={(e) => onToggleChunkLoop(chunkIndex, startTime, endTime, e.shiftKey)}
 			data-tooltip={isLooping ? 'Remove from loop' : 'Add to loop'}
 		>
 			{#if isLooping}

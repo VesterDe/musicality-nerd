@@ -13,6 +13,7 @@
 		type WaveformConfig,
 		type ChunkBounds
 	} from '../utils/svgWaveform';
+	import { getMarkerPosition, getEffectiveRange, fractionRangeToTimeRange, type LoopMarkerPair } from '../utils/loopMarkers';
 
 	interface Props {
 		currentTime: number;
@@ -24,9 +25,11 @@
 		rowHeight?: number;
 		isPlaying?: boolean;
 		rectsPerBeatMode?: 'auto' | number;
-		onChunkLoop?: (chunkIndex: number, startTime: number, endTime: number) => void;
+		onChunkLoop?: (chunkIndex: number, startTime: number, endTime: number, shiftKey: boolean) => void;
 		onClearLoop?: () => void;
 		loopingChunkIndices?: Set<number>;
+		loopMarkerPositions?: Map<number, LoopMarkerPair>;
+		onLoopMarkerUpdate?: (chunkIndex: number, which: 'a' | 'b', fraction: number) => void;
 		onSeek?: (time: number) => void;
 		onBeatsPerLineChange?: (value: number) => void;
 		isAnnotationMode?: boolean;
@@ -64,6 +67,8 @@
 		onChunkLoop,
 		onClearLoop,
 		loopingChunkIndices = new Set<number>(),
+		loopMarkerPositions = new Map<number, LoopMarkerPair>(),
+		onLoopMarkerUpdate,
 		onSeek,
 		isAnnotationMode = false,
 		annotations = [],
@@ -1475,10 +1480,10 @@
 		editingAnnotation = null;
 	}
 
-	function toggleChunkLoop(chunkIndex: number, startTime: number, endTime: number) {
-		console.log('Toggle chunk loop:', { chunkIndex, startTime, endTime, chunkDuration });
+	function toggleChunkLoop(chunkIndex: number, startTime: number, endTime: number, shiftKey: boolean) {
+		console.log('Toggle chunk loop:', { chunkIndex, startTime, endTime, chunkDuration, shiftKey });
 		// Always call onChunkLoop for individual chunk toggling - it handles both add and remove
-		onChunkLoop?.(chunkIndex, startTime, endTime);
+		onChunkLoop?.(chunkIndex, startTime, endTime, shiftKey);
 	}
 
 	function handleAnnotationSave(event: CustomEvent) {
@@ -1678,6 +1683,75 @@
 		document.removeEventListener('touchcancel', handleAnnotationDragTouchEnd);
 	}
 
+	// Loop marker drag state
+	let isDraggingLoopMarker = $state(false);
+	let draggingMarkerChunkIndex = $state<number | null>(null);
+	let draggingMarkerWhich = $state<'a' | 'b' | null>(null);
+
+	function handleLoopMarkerDragStart(chunkIndex: number, which: 'a' | 'b', clientX: number) {
+		isDraggingLoopMarker = true;
+		draggingMarkerChunkIndex = chunkIndex;
+		draggingMarkerWhich = which;
+
+		document.addEventListener('mousemove', handleLoopMarkerDragMove);
+		document.addEventListener('mouseup', handleLoopMarkerDragEnd);
+		document.addEventListener('touchmove', handleLoopMarkerDragTouchMove, { passive: false });
+		document.addEventListener('touchend', handleLoopMarkerDragTouchEnd);
+		document.addEventListener('touchcancel', handleLoopMarkerDragTouchEnd);
+	}
+
+	function computeLoopMarkerFraction(clientX: number): number | null {
+		if (draggingMarkerChunkIndex === null) return null;
+
+		// Find the chunk element by data-chunk-index
+		const chunkElements = document.querySelectorAll(`[data-chunk-index="${draggingMarkerChunkIndex}"]`);
+		if (chunkElements.length === 0) return null;
+
+		const chunkElement = chunkElements[0];
+		const canvas = chunkElement.querySelector('canvas');
+		if (!canvas) return null;
+
+		const rect = canvas.getBoundingClientRect();
+		const x = clientX - rect.left;
+		const fraction = Math.max(0, Math.min(1, x / rect.width));
+		return fraction;
+	}
+
+	function handleLoopMarkerDragMove(event: MouseEvent) {
+		if (!isDraggingLoopMarker || draggingMarkerChunkIndex === null || draggingMarkerWhich === null) return;
+
+		const fraction = computeLoopMarkerFraction(event.clientX);
+		if (fraction !== null) {
+			onLoopMarkerUpdate?.(draggingMarkerChunkIndex, draggingMarkerWhich, fraction);
+		}
+	}
+
+	function handleLoopMarkerDragTouchMove(event: TouchEvent) {
+		if (!isDraggingLoopMarker || event.touches.length === 0) return;
+		event.preventDefault();
+
+		const fraction = computeLoopMarkerFraction(event.touches[0].clientX);
+		if (fraction !== null && draggingMarkerChunkIndex !== null && draggingMarkerWhich !== null) {
+			onLoopMarkerUpdate?.(draggingMarkerChunkIndex, draggingMarkerWhich, fraction);
+		}
+	}
+
+	function handleLoopMarkerDragEnd() {
+		isDraggingLoopMarker = false;
+		draggingMarkerChunkIndex = null;
+		draggingMarkerWhich = null;
+
+		document.removeEventListener('mousemove', handleLoopMarkerDragMove);
+		document.removeEventListener('mouseup', handleLoopMarkerDragEnd);
+		document.removeEventListener('touchmove', handleLoopMarkerDragTouchMove);
+		document.removeEventListener('touchend', handleLoopMarkerDragTouchEnd);
+		document.removeEventListener('touchcancel', handleLoopMarkerDragTouchEnd);
+	}
+
+	function handleLoopMarkerDragTouchEnd() {
+		handleLoopMarkerDragEnd();
+	}
+
 	function handleDuplicateAnnotation(annotation: any) {
 		// Calculate the duration of the annotation
 		const duration = annotation.endTimeMs - annotation.startTimeMs;
@@ -1703,6 +1777,13 @@
 	async function handleChunkExport(chunkIndex: number, startTime: number, endTime: number) {
 		try {
 			exportingChunks.add(chunkIndex);
+
+			// Apply loop markers to narrow the export range if they exist
+			const markers = getMarkerPosition(chunkIndex, loopMarkerPositions);
+			const effectiveRange = getEffectiveRange(markers.markerA, markers.markerB);
+			const narrowed = fractionRangeToTimeRange(effectiveRange, { startTime, endTime });
+			startTime = narrowed.start;
+			endTime = narrowed.end;
 
 			// Generate meaningful filename
 			const chunkName = chunkIndex === -1 ? 'pre-song' : `chunk_${chunkIndex}`;
@@ -1812,6 +1893,8 @@
 									annotations={chunk.annotations}
 									placeholderAnnotation={chunk.placeholderAnnotation}
 									isLooping={chunk.isLooping}
+									loopMarkerPosition={chunk.isLooping ? getMarkerPosition(chunk.index, loopMarkerPositions) : null}
+									onLoopMarkerDragStart={handleLoopMarkerDragStart}
 									hasActiveLoops={loopingChunkIndices.size > 0}
 									isActiveChunk={playheadInfo?.chunkIndex === chunk.index}
 									activeBarIndex={playheadInfo?.chunkIndex === chunk.index && activeBarInfo

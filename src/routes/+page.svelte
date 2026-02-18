@@ -15,6 +15,8 @@
 	import { stemExtractor } from '$lib/utils/stemExtractor';
 	import { detectBpmWithStemFallback } from '$lib/utils/bpmDetection';
 	import { getColorName } from '$lib/utils/colorNames';
+	import { handleLoopToggle, type LoopSelectionState } from '$lib/utils/loopSelection';
+	import { getMarkerPosition, getEffectiveRange, fractionRangeToTimeRange, type LoopMarkerPair } from '$lib/utils/loopMarkers';
 	import { Play, Pause, LocateFixed } from 'lucide-svelte';
 	import type { TrackSession, Annotation } from '$lib/types';
 	let { data } = $props();
@@ -29,6 +31,9 @@
 
 	// UI-specific state (not in store)
 	let loopingChunkIndices = $state(new Set<number>());
+	let lastActivatedChunk: number | null = $state(null);
+	let lastDeactivatedChunk: number | null = $state(null);
+	let loopMarkerPositions = $state(new Map<number, LoopMarkerPair>());
 	let isAnnotationModalOpen = $state(false);
 	let isDraggingProgress = $state(false);
 	let selectedMode: 'normal' | 'stem' | 'tempoTrainer' | null = $state(null); // Mode selector state
@@ -1019,22 +1024,6 @@
 		lastTimeUpdate = Date.now(); // Reset throttle timer
 	}
 
-	// Helper function to manage loop chunks - allows any pieces to be looped
-	function getUpdatedLoopRange(clickedChunk: number, existingChunks: Set<number>): Set<number> {
-		// Check if clicked chunk is already in the loop
-		if (existingChunks.has(clickedChunk)) {
-			// Remove only this chunk from the loop
-			const newChunks = new Set(existingChunks);
-			newChunks.delete(clickedChunk);
-			return newChunks;
-		} else {
-			// Add this chunk to the existing loop (regardless of adjacency)
-			const newChunks = new Set(existingChunks);
-			newChunks.add(clickedChunk);
-			return newChunks;
-		}
-	}
-	
 	// Helper function to get current chunk index based on playhead position
 	function getCurrentChunkIndex(): number {
 		if (!sessionStore.currentSession) return 0;
@@ -1116,28 +1105,39 @@
 		if (chunkIndices.size === 0 || !sessionStore.currentSession) {
 			return [];
 		}
-		
+
 		const sortedIndices = Array.from(chunkIndices).sort((a, b) => a - b);
-		
-		// Create individual segments for each selected chunk
+
+		// Create individual segments for each selected chunk, narrowed by loop markers
 		return sortedIndices.map(chunkIndex => {
 			const { startTime, endTime } = getChunkSongTimes(chunkIndex);
+			const markers = getMarkerPosition(chunkIndex, loopMarkerPositions);
+			const effectiveRange = getEffectiveRange(markers.markerA, markers.markerB);
+			const narrowed = fractionRangeToTimeRange(effectiveRange, { startTime, endTime });
 			return {
-				start: Math.max(0, startTime),
-				end: Math.min(endTime, sessionStore.duration)
+				start: Math.max(0, narrowed.start),
+				end: Math.min(narrowed.end, sessionStore.duration)
 			};
 		});
 	}
 
-	function handleChunkLoop(chunkIndex: number, startTime: number, endTime: number) {
+	function handleChunkLoop(chunkIndex: number, startTime: number, endTime: number, shiftKey: boolean = false) {
 		if (!audioEngine || !sessionStore.currentSession) return;
-		
+
 		// Store scroll position before state change
 		const spectrogramContainer = document.querySelector('.overflow-y-auto');
 		const scrollTop = spectrogramContainer?.scrollTop || 0;
-		
-		// Update loop set - allows any chunks to be looped, individual deselection
-		const newLoopIndices = getUpdatedLoopRange(chunkIndex, loopingChunkIndices);
+
+		// Update loop set using shift-aware selection logic
+		const currentState: LoopSelectionState = {
+			loopingChunks: loopingChunkIndices,
+			lastActivatedChunk,
+			lastDeactivatedChunk
+		};
+		const newState = handleLoopToggle(currentState, chunkIndex, shiftKey);
+		const newLoopIndices = newState.loopingChunks;
+		lastActivatedChunk = newState.lastActivatedChunk;
+		lastDeactivatedChunk = newState.lastDeactivatedChunk;
 		
 		// Calculate loop segments from all selected chunks
 		const loopSegments = calculateLoopSegments(newLoopIndices);
@@ -1168,6 +1168,25 @@
 		}
 	}
 	
+	function handleLoopMarkerUpdate(chunkIndex: number, which: 'a' | 'b', fraction: number) {
+		const current = getMarkerPosition(chunkIndex, loopMarkerPositions);
+		const updated: LoopMarkerPair = which === 'a'
+			? { markerA: fraction, markerB: current.markerB }
+			: { markerA: current.markerA, markerB: fraction };
+
+		const newMap = new Map(loopMarkerPositions);
+		newMap.set(chunkIndex, updated);
+		loopMarkerPositions = newMap;
+
+		// Recalculate and update loop segments if this chunk is looping
+		if (loopingChunkIndices.has(chunkIndex)) {
+			const loopSegments = calculateLoopSegments(loopingChunkIndices);
+			if (loopSegments.length > 0) {
+				audioEngine.setLoopSegments(loopSegments);
+			}
+		}
+	}
+
 	function handleClearLoop() {
 		if (!audioEngine) return;
 
@@ -1177,6 +1196,9 @@
 
 		audioEngine.clearLoop();
 		loopingChunkIndices = new Set<number>();
+		lastActivatedChunk = null;
+		lastDeactivatedChunk = null;
+		loopMarkerPositions = new Map<number, LoopMarkerPair>();
 
 		// Restore scroll position after state change
 		requestAnimationFrame(() => {
@@ -1228,9 +1250,14 @@
 					}
 				}
 
+				// Apply loop markers to narrow the export range
+				const markers = getMarkerPosition(chunkIndex, loopMarkerPositions);
+				const effectiveRange = getEffectiveRange(markers.markerA, markers.markerB);
+				const narrowed = fractionRangeToTimeRange(effectiveRange, { startTime: chunkStartTime, endTime: chunkEndTime });
+
 				return {
-					startTime: Math.max(0, chunkStartTime),
-					endTime: Math.min(chunkEndTime, sessionStore.duration),
+					startTime: Math.max(0, narrowed.start),
+					endTime: Math.min(narrowed.end, sessionStore.duration),
 					index: chunkIndex
 				};
 			});
@@ -1271,7 +1298,9 @@
 		// Clear any active loops
 		audioEngine?.clearLoop();
 		loopingChunkIndices = new Set<number>();
-		
+		lastActivatedChunk = null;
+		lastDeactivatedChunk = null;
+
 		// Clear the current session pointer from persistence
 		// This doesn't delete the session, just removes it as the "current" one
 		await del(CURRENT_SESSION_KEY);
@@ -1475,6 +1504,8 @@
 					onChunkLoop={handleChunkLoop}
 					onClearLoop={handleClearLoop}
 					{loopingChunkIndices}
+					{loopMarkerPositions}
+					onLoopMarkerUpdate={handleLoopMarkerUpdate}
 					onSeek={(time) => {
 						audioEngine.seekTo(time);
 						sessionStore.setCurrentTime(time);

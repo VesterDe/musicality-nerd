@@ -17,7 +17,14 @@ bun run preview      # Preview production build
 bun run check        # TypeScript type checking
 bun run format       # Format code with Prettier
 bun run lint         # Lint code
+bun run test         # Run tests once (vitest run)
+bun run test:watch   # Run tests in watch mode (vitest)
 ```
+
+## Testing
+- **Framework**: Vitest (works with existing Vite config, no extra config needed)
+- **Convention**: Test files live next to source files as `*.test.ts`
+- **Focus**: Pure logic modules in `src/lib/utils/` — extract testable functions out of Svelte components
 
 ## Architecture Overview
 
