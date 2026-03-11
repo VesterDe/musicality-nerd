@@ -61,7 +61,6 @@
 			stems?: Array<{ enabled: boolean; color?: string }>;
 		} | null;
 		showBeatNumbers?: boolean;
-		onOpenTempoTrainer?: (chunkIndex: number, startTime: number, endTime: number) => void;
 		registerScrollToChunk?: (fn: (chunkIndex: number) => void) => void;
 	}
 
@@ -90,7 +89,6 @@
 		filename = 'audio',
 		currentSession = null,
 		showBeatNumbers = false,
-		onOpenTempoTrainer,
 		registerScrollToChunk
 	}: Props = $props();
 
@@ -2042,7 +2040,6 @@
 									{isAnnotationMode}
 									{showBeatNumbers}
 									beatsPerLine={beatGrouping}
-									{onOpenTempoTrainer}
 									onAnnotationDragStart={handleAnnotationDragStart}
 									{isDraggingAnnotation}
 									{draggingAnnotationId}

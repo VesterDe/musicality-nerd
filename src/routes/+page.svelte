@@ -1277,7 +1277,13 @@
 		}
 	}
 
-	function handleOpenTempoTrainer(chunkIndex: number, startTime: number, endTime: number) {
+	function handleOpenTempoTrainer() {
+		if (loopingChunkIndices.size === 0) return;
+		const loopSegments = calculateLoopSegments(loopingChunkIndices);
+		if (loopSegments.length === 0) return;
+		const startTime = Math.min(...loopSegments.map(s => s.start));
+		const endTime = Math.max(...loopSegments.map(s => s.end));
+		const chunkIndex = Math.min(...Array.from(loopingChunkIndices));
 		tempoTrainerSegment = { chunkIndex, startTime, endTime };
 	}
 
@@ -1469,7 +1475,6 @@
 					filename={sessionStore.currentSession.filename.replace(/\.[^/.]+$/, "")}
 					currentSession={sessionStore.currentSession}
 					showBeatNumbers={sessionStore.showBeatNumbers}
-					onOpenTempoTrainer={handleOpenTempoTrainer}
 					registerScrollToChunk={(fn) => waveformScrollToChunk = fn}
 				/>
 			{:else if sessionStore.isSessionInitializing}
@@ -1623,13 +1628,13 @@
 							</svg>
 						</button>
 					</div>
-					<Sidebar {audioEngine} {bpmDetector} {persistenceService} onClearAllLoops={handleClearLoop} onExportAllLoops={handleGroupExport} loopingChunkCount={loopingChunkIndices.size} />
+					<Sidebar {audioEngine} {bpmDetector} {persistenceService} onClearAllLoops={handleClearLoop} onExportAllLoops={handleGroupExport} onOpenTempoTrainer={handleOpenTempoTrainer} loopingChunkCount={loopingChunkIndices.size} />
 				</aside>
 			{/if}
 			
 			<!-- Desktop: Fixed column sidebar -->
 			<div class="hidden lg:block">
-				<Sidebar {audioEngine} {bpmDetector} {persistenceService} onClearAllLoops={handleClearLoop} onExportAllLoops={handleGroupExport} loopingChunkCount={loopingChunkIndices.size} />
+				<Sidebar {audioEngine} {bpmDetector} {persistenceService} onClearAllLoops={handleClearLoop} onExportAllLoops={handleGroupExport} onOpenTempoTrainer={handleOpenTempoTrainer} loopingChunkCount={loopingChunkIndices.size} />
 			</div>
 		{/if}
 	</div>

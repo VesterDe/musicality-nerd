@@ -12,10 +12,11 @@
 		persistenceService: PersistenceService;
 		onClearAllLoops?: () => void;
 		onExportAllLoops?: () => void;
+		onOpenTempoTrainer?: () => void;
 		loopingChunkCount?: number;
 	}
 
-	let { audioEngine, bpmDetector, persistenceService, onClearAllLoops, onExportAllLoops, loopingChunkCount = 0 }: Props = $props();
+	let { audioEngine, bpmDetector, persistenceService, onClearAllLoops, onExportAllLoops, onOpenTempoTrainer, loopingChunkCount = 0 }: Props = $props();
 
 	// Export service for BPM-aware stem downloads
 	let exportService = $state(new AudioExportService());
@@ -178,6 +179,12 @@
 		<div class="space-y-2 border-t border-gray-700 pt-4">
 			<p class="text-sm font-medium text-gray-300">Loop Controls ({loopingChunkCount} chunks)</p>
 			<div class="flex gap-2">
+				<button
+					class="flex-1 rounded bg-amber-700 px-3 py-2 text-sm font-medium text-amber-100 transition-colors hover:bg-amber-600"
+					onclick={onOpenTempoTrainer}
+				>
+					Tempo Trainer
+				</button>
 				<button
 					class="flex-1 rounded bg-gray-700 px-3 py-2 text-sm font-medium text-gray-200 transition-colors hover:bg-gray-600"
 					onclick={onExportAllLoops}

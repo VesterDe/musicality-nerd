@@ -15,10 +15,11 @@
 		persistenceService: PersistenceService;
 		onClearAllLoops?: () => void;
 		onExportAllLoops?: () => void;
+		onOpenTempoTrainer?: () => void;
 		loopingChunkCount?: number;
 	}
 
-	let { audioEngine, bpmDetector, persistenceService, onClearAllLoops, onExportAllLoops, loopingChunkCount = 0 }: Props = $props();
+	let { audioEngine, bpmDetector, persistenceService, onClearAllLoops, onExportAllLoops, onOpenTempoTrainer, loopingChunkCount = 0 }: Props = $props();
 	
 	// Initialize panel states from localStorage or defaults
 	function getInitialPanelStates() {
@@ -80,7 +81,7 @@
 			</button>
 			{#if openPanels.playback}
 				<div class="px-4 pb-4 pt-2 border-t border-gray-800">
-					<PlaybackSettings {audioEngine} {bpmDetector} {persistenceService} {onClearAllLoops} {onExportAllLoops} {loopingChunkCount} />
+					<PlaybackSettings {audioEngine} {bpmDetector} {persistenceService} {onClearAllLoops} {onExportAllLoops} {onOpenTempoTrainer} {loopingChunkCount} />
 				</div>
 			{/if}
 		</div>

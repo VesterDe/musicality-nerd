@@ -14,7 +14,7 @@
 	} from '../utils/canvasWaveform';
 	import { timeToPixel } from '../utils/svgWaveform';
 	import { getEffectiveRange, type LoopMarkerPair } from '../utils/loopMarkers';
-	import { Download, Crosshair, Repeat, Square, LoaderCircle } from 'lucide-svelte';
+	import { Download, Repeat, Square, LoaderCircle } from 'lucide-svelte';
 
 	interface Props {
 		chunkIndex: number;
@@ -61,7 +61,6 @@
 		isAnnotationMode?: boolean;
 		showBeatNumbers?: boolean;
 		beatsPerLine?: number;
-		onOpenTempoTrainer?: (chunkIndex: number, startTime: number, endTime: number) => void;
 		// Cross-row annotation drag props
 		onAnnotationDragStart?: (
 			annotationId: string,
@@ -116,7 +115,6 @@
 		isAnnotationMode = false,
 		showBeatNumbers = false,
 		beatsPerLine = 8,
-		onOpenTempoTrainer,
 		onAnnotationDragStart,
 		isDraggingAnnotation = false,
 		draggingAnnotationId = null,
@@ -489,13 +487,6 @@
 			{:else}
 				<Download size={14} strokeWidth={2} />
 			{/if}
-		</button>
-		<button
-			class="tooltip-left flex h-6 w-6 items-center justify-center rounded transition-colors text-amber-300 hover:bg-amber-700/80"
-			onclick={() => onOpenTempoTrainer?.(chunkIndex, startTime, endTime)}
-			data-tooltip="Tempo Trainer"
-		>
-			<Crosshair size={14} strokeWidth={2} />
 		</button>
 		<button
 			class="tooltip-left flex h-6 w-6 items-center justify-center rounded transition-colors {isLooping
