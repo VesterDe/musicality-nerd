@@ -54,6 +54,17 @@
 	let originalEndTime = $state(0);
 	let hideTimeout: number | null = $state(null);
 	let lastPointerClientX = $state(0);
+	let annotationEl: HTMLDivElement | undefined = $state();
+	let tooltipRect = $state<{ x: number; y: number } | null>(null);
+
+	$effect(() => {
+		if (showUtility && annotationEl) {
+			const rect = annotationEl.getBoundingClientRect();
+			tooltipRect = { x: rect.left + rect.width / 2, y: rect.top };
+		} else {
+			tooltipRect = null;
+		}
+	});
 
 	// Preview state for drag/resize placeholder
 	let previewStartTimeMs = $state<number | null>(null);
@@ -370,6 +381,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
+	bind:this={annotationEl}
 	class="group absolute"
 	class:cursor-pointer={!isPlaceholder}
 	class:cursor-default={isPlaceholder}
@@ -502,13 +514,13 @@
 		</div>
 	{/if}
 
-	<!-- Label display - shown on hover -->
-	{#if showUtility && !isPlaceholder}
+	<!-- Label tooltip rendered via fixed positioning to escape overflow:hidden -->
+	{#if showUtility && !isPlaceholder && tooltipRect}
 		<div
-			class="absolute z-10 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-xs whitespace-nowrap text-white shadow-lg"
-			style:left="50%"
-			style:top="-30px"
-			style:transform="translateX(-50%)"
+			class="pointer-events-none fixed z-50 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-xs whitespace-nowrap text-white shadow-lg"
+			style:left="{tooltipRect.x}px"
+			style:top="{tooltipRect.y - 8}px"
+			style:transform="translateX(-50%) translateY(-100%)"
 		>
 			{annotation.label}
 		</div>
