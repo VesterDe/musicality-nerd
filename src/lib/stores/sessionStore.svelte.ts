@@ -343,6 +343,12 @@ export class SessionStore {
     this.duration = value;
   }
 
+  async seekTo(timeSeconds: number) {
+    if (!this.audioEngine) return;
+    await this.audioEngine.seekTo(timeSeconds);
+    this.currentTime = this.audioEngine.getCurrentTime();
+  }
+
   // Auto-follow
   toggleAutoFollow() {
     this.autoFollow = !this.autoFollow;

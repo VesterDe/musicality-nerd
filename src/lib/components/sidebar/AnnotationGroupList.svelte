@@ -99,6 +99,21 @@
 		sessionStore.toggleGroupVisibility(groupKey);
 	}
 
+	async function handleGroupJump(groupKey: string) {
+		const annotations = sessionStore.currentSession?.annotations || [];
+		const matches = annotations
+			.filter((a) => getGroupKey(a.label) === groupKey)
+			.sort((a, b) => a.startTimeMs - b.startTimeMs);
+		if (matches.length === 0) return;
+
+		const currentMs = sessionStore.currentTime * 1000;
+		// Jump to the next annotation strictly after the playhead; wrap to first.
+		// Small epsilon so clicking again on the same group advances instead of
+		// re-landing on the annotation we just snapped to.
+		const next = matches.find((a) => a.startTimeMs > currentMs + 5) ?? matches[0];
+		await sessionStore.seekTo(next.startTimeMs / 1000);
+	}
+
 	// Close pickers when clicking outside
 	function handleOutsideClick() {
 		colorPickerOpenFor = null;
@@ -117,8 +132,20 @@
 			{#each groups as group}
 				{@const isVisible = sessionStore.isGroupVisible(group.groupKey)}
 				<div
-					class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-gray-700/50 hover:bg-gray-700 transition-colors"
-					onclick={(e) => e.stopPropagation()}
+					class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-gray-700/50 hover:bg-gray-700 transition-colors cursor-pointer"
+					onclick={(e) => {
+						e.stopPropagation();
+						handleGroupJump(group.groupKey);
+					}}
+					role="button"
+					tabindex="0"
+					onkeydown={(e) => {
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							handleGroupJump(group.groupKey);
+						}
+					}}
+					title="Click to jump to this group"
 				>
 					<div class="flex items-center gap-2 flex-1 min-w-0">
 						<!-- Color blob with picker -->
@@ -159,7 +186,10 @@
 					<button
 						type="button"
 						class="flex items-center cursor-pointer select-none flex-shrink-0"
-						onclick={() => handleToggleVisibility(group.groupKey)}
+						onclick={(e) => {
+							e.stopPropagation();
+							handleToggleVisibility(group.groupKey);
+						}}
 						aria-pressed={isVisible}
 						aria-label="Toggle {group.displayName} visibility"
 					>
